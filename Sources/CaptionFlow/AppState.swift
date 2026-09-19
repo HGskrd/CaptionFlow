@@ -4,7 +4,16 @@ import CoreGraphics
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var preferences = Preferences.load() { didSet { preferences.save() } }
+    @Published var preferences = Preferences.load() {
+        didSet {
+            preferences.save()
+            if oldValue.effectiveCaptionFlow != preferences.effectiveCaptionFlow ||
+                oldValue.effectiveCaptionWordLimit != preferences.effectiveCaptionWordLimit ||
+                oldValue.effectiveCaptionTimeLimit != preferences.effectiveCaptionTimeLimit {
+                applyCaptionFlowPreferences()
+            }
+        }
+    }
     @Published var inspector = true
     @Published var fullScreenInspector = false
     @Published var tab = "Style"
@@ -33,7 +42,10 @@ final class AppState: ObservableObject {
     private var captionID = ""
     private var originalStream = ProgressiveCaption()
     private var translationStreams: [String: ProgressiveCaption] = [:]
+    private var originalRetention = CaptionRetentionBuffer()
+    private var translationRetentions: [String: CaptionRetentionBuffer] = [:]
     private var playbackTask: Task<Void, Never>?
+    private var expirationTask: Task<Void, Never>?
     var active: Bool { busy || listening }
     var speechModelNote: String {
         let model = preferences.whisperModel.lowercased()
@@ -131,22 +143,66 @@ final class AppState: ObservableObject {
     }
     private func resetPlayback() {
         playbackTask?.cancel(); playbackTask = nil
+        expirationTask?.cancel(); expirationTask = nil
         originalStream = ProgressiveCaption(); translationStreams = [:]; captionID = ""
+        originalRetention = CaptionRetentionBuffer(); translationRetentions = [:]
     }
     private func playPendingWords() {
         guard playbackTask == nil else { return }
         playbackTask = Task { [weak self] in
             while !Task.isCancelled {
                 guard let self else { return }
-                if let text = self.originalStream.advance() { self.original = text }
-                for language in Array(self.translationStreams.keys) {
-                    if let text = self.translationStreams[language]?.advance() { self.translations[language] = text }
+                if let step = self.originalStream.advanceStep() {
+                    self.originalRetention.append(step.appendedText)
+                    self.original = self.displayText(step: step, buffer: &self.originalRetention)
                 }
+                for language in Array(self.translationStreams.keys) {
+                    if let step = self.translationStreams[language]?.advanceStep() {
+                        self.translationRetentions[language, default: CaptionRetentionBuffer()].append(step.appendedText)
+                        self.translations[language] = self.displayText(step: step, buffer: &self.translationRetentions[language, default: CaptionRetentionBuffer()])
+                    }
+                }
+                self.startExpirationTimerIfNeeded()
                 guard self.originalStream.hasPending || self.translationStreams.values.contains(where: { $0.hasPending }) else {
                     self.playbackTask = nil; return
                 }
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
             }
+        }
+    }
+    private func displayText(step: CaptionStep, buffer: inout CaptionRetentionBuffer) -> String {
+        let mode = preferences.effectiveCaptionFlow
+        if mode == .sentence { return step.fullText }
+        return buffer.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+    }
+    private func applyCaptionFlowPreferences() {
+        let mode = preferences.effectiveCaptionFlow
+        if mode == .sentence {
+            original = originalStream.text
+            for language in translationStreams.keys { translations[language] = translationStreams[language]?.text ?? "" }
+        } else {
+            original = originalRetention.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+            for language in translationRetentions.keys {
+                translations[language] = translationRetentions[language]?.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit) ?? ""
+            }
+        }
+        startExpirationTimerIfNeeded()
+    }
+    private func startExpirationTimerIfNeeded() {
+        guard preferences.effectiveCaptionFlow == .time, expirationTask == nil,
+              !originalRetention.isEmpty || translationRetentions.values.contains(where: { !$0.isEmpty }) else { return }
+        expirationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                guard let self, self.preferences.effectiveCaptionFlow == .time else { break }
+                let now = Date()
+                self.original = self.originalRetention.text(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now)
+                for language in self.translationRetentions.keys {
+                    self.translations[language] = self.translationRetentions[language]?.text(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now) ?? ""
+                }
+                if self.originalRetention.isEmpty && self.translationRetentions.values.allSatisfy(\.isEmpty) { break }
+            }
+            self?.expirationTask = nil
         }
     }
     private func fail(_ message: String) { stop(); error = message; phase = "Needs attention" }

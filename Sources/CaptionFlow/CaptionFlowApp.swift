@@ -150,6 +150,33 @@ struct InspectorView: View {
                     Slider(value: $state.preferences.fontSize, in: 24...120, step: 2).accessibilityLabel("Font size")
                 }
             }
+            Section("Caption flow") {
+                Picker("Keep on screen", selection: Binding(
+                    get: { state.preferences.effectiveCaptionFlow },
+                    set: { state.preferences.captionFlow = $0 }
+                )) {
+                    ForEach(CaptionFlowMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                if state.preferences.effectiveCaptionFlow == .words {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack { Text("Maximum"); Spacer(); Text("\(state.preferences.effectiveCaptionWordLimit) words").foregroundStyle(.secondary).monospacedDigit() }
+                        Slider(value: Binding(
+                            get: { Double(state.preferences.effectiveCaptionWordLimit) },
+                            set: { state.preferences.captionWordLimit = Int($0) }
+                        ), in: 3...60, step: 1).accessibilityLabel("Maximum words on screen")
+                    }
+                } else if state.preferences.effectiveCaptionFlow == .time {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack { Text("Keep each word"); Spacer(); Text(state.preferences.effectiveCaptionTimeLimit, format: .number.precision(.fractionLength(1))); Text("s").foregroundStyle(.secondary) }
+                        Slider(value: Binding(
+                            get: { state.preferences.effectiveCaptionTimeLimit },
+                            set: { state.preferences.captionTimeLimit = $0 }
+                        ), in: 1...20, step: 0.5).accessibilityLabel("Time each word remains on screen")
+                    }
+                }
+                Text(flowDescription).font(.caption).foregroundStyle(.secondary)
+            }
             Section("Canvas") {
                 ColorPicker("Text", selection: Binding(get: { state.preferences.foreground.color }, set: { state.preferences.foreground = RGBA($0) }), supportsOpacity: false)
                 ColorPicker("Background", selection: Binding(get: { state.preferences.background.color }, set: { state.preferences.background = RGBA($0) }), supportsOpacity: false)
@@ -162,6 +189,13 @@ struct InspectorView: View {
             Section {
                 Button("Preview", systemImage: "text.quote") { state.showPreview() }.disabled(state.active)
             }
+        }
+    }
+    private var flowDescription: String {
+        switch state.preferences.effectiveCaptionFlow {
+        case .sentence: return "Replace the previous sentence when the next one begins."
+        case .words: return "Keep a rolling window; the oldest word leaves as each new word appears."
+        case .time: return "Each word disappears individually after its time expires."
         }
     }
     private func preset(_ title: String, fg: RGBA, bg: RGBA) -> some View {

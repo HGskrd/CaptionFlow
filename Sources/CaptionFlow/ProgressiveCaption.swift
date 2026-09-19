@@ -1,6 +1,11 @@
 import Foundation
 import NaturalLanguage
 
+struct CaptionStep: Equatable {
+    let fullText: String
+    let appendedText: String
+}
+
 /// Freezes words once read; recognition may revise only the unpublished suffix.
 struct ProgressiveCaption {
     private(set) var visible: [String] = []
@@ -9,6 +14,7 @@ struct ProgressiveCaption {
     private var captionID = ""
     private var replaceOnNextWord = false
     var hasPending: Bool { consumed < hypothesis.count }
+    var text: String { visible.joined().trimmingCharacters(in: .whitespacesAndNewlines) }
 
     mutating func update(_ text: String, id: String) {
         let incoming = Self.words(text)
@@ -29,7 +35,7 @@ struct ProgressiveCaption {
             hypothesis = incoming
         }
     }
-    mutating func advance() -> String? {
+    mutating func advanceStep() -> CaptionStep? {
         guard hasPending else { return nil }
         if replaceOnNextWord { visible.removeAll(); replaceOnNextWord = false }
         if consumed > 0, let end = hypothesis[consumed - 1].trimmingCharacters(in: .whitespacesAndNewlines).last,
@@ -47,10 +53,12 @@ struct ProgressiveCaption {
            visible[visible.count - 1].last?.isWhitespace != true {
             visible[visible.count - 1] += " "
         }
-        visible.append(hypothesis[consumed])
+        let appendedText = hypothesis[consumed]
+        visible.append(appendedText)
         consumed += 1
-        return visible.joined().trimmingCharacters(in: .whitespacesAndNewlines)
+        return CaptionStep(fullText: text, appendedText: appendedText)
     }
+    mutating func advance() -> String? { advanceStep()?.fullText }
     static func words(_ text: String) -> [String] {
         let tokenizer = NLTokenizer(unit: .word)
         tokenizer.string = text

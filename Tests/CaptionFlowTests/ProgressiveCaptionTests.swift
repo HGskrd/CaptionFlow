@@ -11,6 +11,12 @@ final class ProgressiveCaptionTests: XCTestCase {
         XCTAssertEqual(caption.advance(), "The train leaves tomorrow.")
         XCTAssertNil(caption.advance())
     }
+    func testStepExposesOnlyTheNewWordChunk() {
+        var caption = ProgressiveCaption()
+        caption.update("The train leaves", id: "one")
+        XCTAssertEqual(caption.advanceStep(), CaptionStep(fullText: "The", appendedText: "The "))
+        XCTAssertEqual(caption.advanceStep(), CaptionStep(fullText: "The train", appendedText: "train "))
+    }
     func testRevisionDoesNotRewriteReadWords() {
         var caption = ProgressiveCaption()
         caption.update("The train leaves soon", id: "one")

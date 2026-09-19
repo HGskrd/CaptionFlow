@@ -12,6 +12,11 @@ struct RGBA: Codable, Equatable {
 }
 enum DisplayMode: String, Codable, CaseIterable { case original = "Original", translated = "Translation", both = "Both" }
 enum AudioSource: String, Codable, CaseIterable { case microphone = "Microphone", system = "Mac audio" }
+enum CaptionFlowMode: String, Codable, CaseIterable {
+    case sentence = "Sentence"
+    case words = "Words"
+    case time = "Time"
+}
 struct Preferences: Codable {
     var typeface = "System"
     var fontSize = 54.0
@@ -27,6 +32,13 @@ struct Preferences: Codable {
     var allowDownloads = true
     var pythonPath = "/opt/homebrew/bin/python3.11"
     var silenceThreshold = 0.008
+    // Optional storage keeps preferences written by older builds decodable.
+    var captionFlow: CaptionFlowMode?
+    var captionWordLimit: Int?
+    var captionTimeLimit: Double?
+    var effectiveCaptionFlow: CaptionFlowMode { captionFlow ?? .sentence }
+    var effectiveCaptionWordLimit: Int { min(60, max(3, captionWordLimit ?? 18)) }
+    var effectiveCaptionTimeLimit: Double { min(20, max(1, captionTimeLimit ?? 6)) }
     static let languages = ["English", "French", "Spanish", "German", "Italian", "Portuguese", "Dutch", "Polish", "Russian", "Ukrainian", "Arabic", "Hindi", "Chinese", "Japanese", "Korean"]
     static func load() -> Self {
         guard let data = UserDefaults.standard.data(forKey: "preferences"), let value = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }

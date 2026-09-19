@@ -268,7 +268,8 @@ struct InspectorView: View {
             Section("Models") {
                 speechModelPicker
                 Text(state.speechModelNote).font(.caption).foregroundStyle(.secondary)
-                modelPicker("Translation", kind: .translation, selection: $state.preferences.translationModel, fallback: "mlx-community/Qwen2.5-1.5B-Instruct-4bit", label: "Qwen 2.5 · 1.5B · 4-bit")
+                translationModelPicker
+                Text(state.translationModelNote).font(.caption).foregroundStyle(.secondary)
                 Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
                 Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Models must be MLX-compatible; GGUF and PyTorch-only weights are not interchangeable.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active || state.installing)
@@ -286,6 +287,18 @@ struct InspectorView: View {
             ForEach(state.models.filter { $0.kind == .speech }) { Text("Local · \($0.name)").tag($0.path) }
             let selection = state.preferences.whisperModel
             if !["mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
+               !state.models.contains(where: { $0.path == selection }) {
+                Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
+            }
+        }
+    }
+    private var translationModelPicker: some View {
+        Picker("Translation", selection: $state.preferences.translationModel) {
+            Text("Qwen 3.5 · 0.8B · 4-bit · lighter").tag(Preferences.qwen35TranslationModel)
+            Text("Qwen 2.5 · 1.5B · 4-bit").tag(Preferences.qwen25TranslationModel)
+            ForEach(state.models.filter { $0.kind == .translation }) { Text("Local · \($0.name)").tag($0.path) }
+            let selection = state.preferences.translationModel
+            if ![Preferences.qwen35TranslationModel, Preferences.qwen25TranslationModel].contains(selection),
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }

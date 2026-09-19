@@ -18,6 +18,8 @@ enum CaptionFlowMode: String, Codable, CaseIterable {
     case time = "Time"
 }
 struct Preferences: Codable {
+    static let qwen25TranslationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+    static let qwen35TranslationModel = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
     var typeface = "System"
     var fontSize = 54.0
     var foreground = RGBA(0.96, 0.96, 0.94)
@@ -28,7 +30,7 @@ struct Preferences: Codable {
     var targets = ["French"]
     var roots: [String] = []
     var whisperModel = "mlx-community/whisper-small-mlx"
-    var translationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
+    var translationModel = Self.qwen25TranslationModel
     var allowDownloads = true
     var pythonPath = "/opt/homebrew/bin/python3.11"
     var silenceThreshold = 0.008

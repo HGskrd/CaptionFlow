@@ -55,6 +55,12 @@ final class AppState: ObservableObject {
         if model.contains("voxtral") { return "Voxtral Realtime · 4B · 4-bit · 13 languages · higher memory use" }
         return "Whisper Small · multilingual · balanced"
     }
+    var translationModelNote: String {
+        if preferences.translationModel == Preferences.qwen35TranslationModel {
+            return "Qwen 3.5 · about 652 MB · lower memory use · partial revisions decode fresh"
+        }
+        return "Qwen 2.5 · about 1.1 GB · reusable prefix cache"
+    }
 
     func install() {
         guard !installing else { return }

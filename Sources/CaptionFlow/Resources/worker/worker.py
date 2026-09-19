@@ -45,7 +45,7 @@ def resolve_model(value, cache_dir, allow_downloads):
             result = super().update(n)
             self.reported_bytes = getattr(self, "reported_bytes", 0) + n
             now = time.monotonic()
-            if self.unit == "B" and now - getattr(self, "last_report", 0) > 0.5:
+            if getattr(self, "unit", None) == "B" and now - getattr(self, "last_report", 0) > 0.5:
                 self.last_report = now
                 total = f" / {self.total / 1e6:.0f} MB" if self.total else " MB"
                 emit("status", message=f"Downloading {value.split('/')[-1]} · {self.reported_bytes / 1e6:.0f}" + total)
@@ -54,7 +54,7 @@ def resolve_model(value, cache_dir, allow_downloads):
     emit("status", message=("Checking / downloading " if allow_downloads else "Opening cached ") + value + "…")
     try:
         return snapshot_download(value, cache_dir=cache_dir, local_files_only=not allow_downloads, tqdm_class=DownloadProgress,
-                                 allow_patterns=["*.json", "*.safetensors", "*.npz", "*.model", "*.txt", "*.tiktoken"])
+                                 allow_patterns=["*.json", "*.safetensors", "*.npz", "*.model", "*.txt", "*.tiktoken", "*.jinja"])
     except Exception as exc:
         if not allow_downloads:
             raise RuntimeError(f"{value} is not available in the app cache. Select an existing model folder, or enable downloads.") from exc
@@ -166,10 +166,13 @@ class PrefixTranslator:
     def __init__(self, model_path):
         from mlx_lm import load
         from mlx_lm.models.cache import make_prompt_cache, can_trim_prompt_cache
-        self.model, self.tokenizer = load(model_path, tokenizer_config={"trust_remote_code": False})
+        tokenizer_config = {"trust_remote_code": False}
+        template = Path(model_path) / "chat_template.jinja"
+        if template.exists():
+            tokenizer_config["chat_template"] = template.read_text(encoding="utf-8")
+        self.model, self.tokenizer = load(model_path, tokenizer_config=tokenizer_config)
         probe = make_prompt_cache(self.model)
-        if not can_trim_prompt_cache(probe) or not all(hasattr(layer, "offset") for layer in probe):
-            raise ValueError("This translation model does not support editable prefix caches. Choose Qwen 2.5 or a standard Llama model.")
+        self.editable_cache = can_trim_prompt_cache(probe) and all(hasattr(layer, "offset") for layer in probe)
         self.states = {}
 
     def translate(self, text, language, source_language, revision):
@@ -181,17 +184,20 @@ class PrefixTranslator:
             {"role": "user", "content": text},
         ]
         tokens = self.tokenizer.apply_chat_template(messages, tokenize=True, add_generation_prompt=True)
-        state = self.states.get(language)
+        state = self.states.get(language) if self.editable_cache else None
         if state is None:
             state = {"cache": make_prompt_cache(self.model), "tokens": []}
-            self.states[language] = state
+            if self.editable_cache:
+                self.states[language] = state
         cache = state["cache"]
-        offset = min(layer.offset for layer in cache)
-        reuse = cache_reuse(state["tokens"], tokens, offset)
-        removed = trim_prompt_cache(cache, offset - reuse)
-        if removed != offset - reuse:
-            raise RuntimeError("Translation cache could not be rewound safely.")
-        state["tokens"] = tokens
+        reuse = 0
+        if self.editable_cache:
+            offset = min(layer.offset for layer in cache)
+            reuse = cache_reuse(state["tokens"], tokens, offset)
+            removed = trim_prompt_cache(cache, offset - reuse)
+            if removed != offset - reuse:
+                raise RuntimeError("Translation cache could not be rewound safely.")
+            state["tokens"] = tokens
         text_out = ""; last_visible = ""
         for chunk in stream_generate(self.model, self.tokenizer, tokens[reuse:], prompt_cache=cache,
                                      max_tokens=160, sampler=make_sampler(temp=0.0)):

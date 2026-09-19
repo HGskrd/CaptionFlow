@@ -28,5 +28,5 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-codesign --force --deep --sign - "$APP"
+/usr/bin/python3 scripts/sign-app.py "$APP"
 printf '%s\n' "$APP"

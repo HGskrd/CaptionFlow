@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import CoreGraphics
 
 @MainActor
 final class AppState: ObservableObject {
@@ -19,6 +20,7 @@ final class AppState: ObservableObject {
     @Published var translations: [String: String] = [:]
     @Published var detectedLanguage = ""
     @Published var error: String?
+    @Published var capturePermissionIssue = false
     @Published var level: Float = 0
     @Published var cachedTokens = 0
     @Published var latency = 0.0
@@ -28,6 +30,10 @@ final class AppState: ObservableObject {
     private var captureTask: Task<Void, Never>?
     private var session = UUID()
     private var revision = -1
+    private var captionID = ""
+    private var originalStream = ProgressiveCaption()
+    private var translationStreams: [String: ProgressiveCaption] = [:]
+    private var playbackTask: Task<Void, Never>?
     var active: Bool { busy || listening }
 
     func install() {
@@ -45,10 +51,17 @@ final class AppState: ObservableObject {
     }
     func start() {
         guard !active, !installing else { return }
+        capturePermissionIssue = false
+        if preferences.source == .system && !CGPreflightScreenCaptureAccess() {
+            capturePermissionIssue = true
+            error = "macOS has not authorized this build of CaptionFlow to capture Mac audio. If the switch is already enabled, the saved permission may refer to an older build. Remove the old CaptionFlow entry and add this app again in Screen & System Audio Recording, then quit and reopen CaptionFlow."
+            return
+        }
         guard installed else { inspector = true; tab = "Models"; phase = "Set up local inference to begin"; return }
         if preferences.displayMode != .original && preferences.targets.isEmpty {
             error = "Choose at least one translation language, or display Original only."; return
         }
+        resetPlayback()
         error = nil; original = ""; translations = [:]; preview = false; cachedTokens = 0; revision = -1
         busy = true; phase = "Loading local models…"; session = UUID()
         let id = session; let bridge = WorkerBridge(); worker = bridge
@@ -63,6 +76,11 @@ final class AppState: ObservableObject {
                 "silence_threshold": preferences.silenceThreshold
             ])
         } catch { fail(error.localizedDescription) }
+    }
+    func openCaptureSettings() {
+        error = nil
+        CGRequestScreenCaptureAccess()
+        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture")!)
     }
     private func receive(_ event: [String: Any]) {
         switch event["type"] as? String {
@@ -90,19 +108,44 @@ final class AppState: ObservableObject {
         case "source":
             let next = event["revision"] as? Int ?? 0
             guard next >= revision else { return }
-            revision = next; original = event["text"] as? String ?? ""; translations = [:]
+            revision = next
+            captionID = event["caption_id"] as? String ?? "utterance"
+            originalStream.update(event["text"] as? String ?? "", id: captionID)
+            playPendingWords()
             detectedLanguage = (event["language"] as? String ?? "").uppercased()
             latency = event["latency"] as? Double ?? 0
         case "translation":
             guard event["revision"] as? Int == revision, let language = event["language"] as? String else { return }
-            translations[language] = event["text"] as? String ?? ""
+            translationStreams[language, default: ProgressiveCaption()].update(event["text"] as? String ?? "", id: captionID)
+            playPendingWords()
             cachedTokens = event["cached_tokens"] as? Int ?? 0
         case "error": fail(event["message"] as? String ?? "Local inference failed.")
         default: break
         }
     }
+    private func resetPlayback() {
+        playbackTask?.cancel(); playbackTask = nil
+        originalStream = ProgressiveCaption(); translationStreams = [:]; captionID = ""
+    }
+    private func playPendingWords() {
+        guard playbackTask == nil else { return }
+        playbackTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let text = self.originalStream.advance() { self.original = text }
+                for language in Array(self.translationStreams.keys) {
+                    if let text = self.translationStreams[language]?.advance() { self.translations[language] = text }
+                }
+                guard self.originalStream.hasPending || self.translationStreams.values.contains(where: { $0.hasPending }) else {
+                    self.playbackTask = nil; return
+                }
+                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+            }
+        }
+    }
     private func fail(_ message: String) { stop(); error = message; phase = "Needs attention" }
     func stop() {
+        resetPlayback()
         session = UUID(); captureTask?.cancel(); captureTask = nil
         worker?.stop(); worker = nil
         let oldAudio = audio; audio = nil
@@ -111,10 +154,16 @@ final class AppState: ObservableObject {
     }
     func showPreview() {
         guard !active else { return }
-        preview = true; original = "A little more understanding, one sentence at a time."
-        translations = ["French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]
+        resetPlayback()
+        preview = true; original = ""; translations = [:]
+        let id = UUID().uuidString
+        originalStream.update("A little more understanding, one sentence at a time.", id: id)
+        let samples = ["English": "A little more understanding, one sentence at a time.", "French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]
+        for (language, text) in samples { translationStreams[language, default: ProgressiveCaption()].update(text, id: id) }
+        playPendingWords()
         phase = "Style preview · sample text"
     }
+
     func addRoots() {
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true; panel.allowsMultipleSelection = true
         panel.message = "Choose model folders or cache roots. Hugging Face snapshots and nested model folders are discovered automatically."

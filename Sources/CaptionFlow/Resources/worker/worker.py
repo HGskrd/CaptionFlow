@@ -15,7 +15,7 @@ import threading
 import time
 import traceback
 
-from caption_core import cache_reuse, latest_caption, visible_words
+from caption_core import cache_reuse, visible_words
 
 PROTOCOL = sys.stdout
 OUTPUT_LOCK = threading.Lock()
@@ -218,12 +218,12 @@ def main():
         segments = result.get("segments", [])
         reliable = [segment.get("text", "") for segment in segments
                     if segment.get("no_speech_prob", 0) < 0.6 and segment.get("avg_logprob", 0) > -1.0]
-        text = latest_caption(" ".join(reliable))
+        text = " ".join(" ".join(reliable).split())
         if not text or (text == last_text and utterance == last_utterance):
             continue
         last_text = text; last_utterance = utterance; revision += 1
         language = result.get("language", source_language)
-        emit("source", revision=revision, text=text, language=language, final=final, latency=time.monotonic() - start)
+        emit("source", revision=revision, caption_id=str(utterance), text=text, language=language, final=final, latency=time.monotonic() - start)
         for target in targets:
             translator.translate(text, target, language, revision)
     if inbox.error:

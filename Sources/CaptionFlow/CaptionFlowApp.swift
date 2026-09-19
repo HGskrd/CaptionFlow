@@ -63,6 +63,9 @@ struct ContentView: View {
         }
         .toolbar(presentation.isFullScreen ? .hidden : .visible, for: .windowToolbar)
         .alert("CaptionFlow needs attention", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
+            if state.capturePermissionIssue {
+                Button("Open System Settings") { state.openCaptureSettings() }
+            }
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }
         .onAppear { state.scan() }
@@ -75,7 +78,6 @@ struct SubtitleCanvas: View {
     @EnvironmentObject private var state: AppState
     var fullScreen = false
     private var prefs: Preferences { state.preferences }
-    private var captionFont: Font { prefs.typeface == "System" ? .system(size: prefs.fontSize, weight: .medium) : .custom(prefs.typeface, size: prefs.fontSize) }
     var body: some View {
         GeometryReader { geometry in
             ZStack {
@@ -94,16 +96,16 @@ struct SubtitleCanvas: View {
                         .foregroundStyle(prefs.foreground.color.opacity(0.7)).padding(40)
                     }
                 } else {
+                    let laneCount = max(1, (prefs.displayMode != .translated ? 1 : 0) + (prefs.displayMode != .original ? prefs.targets.count : 0))
+                    let laneHeight = max(prefs.fontSize * 1.5, (geometry.size.height - 64 - Double(laneCount - 1) * 32) / Double(laneCount))
                     ScrollView {
                         VStack(spacing: 32) {
                             if prefs.displayMode != .translated {
-                                caption(state.original, label: "Original")
+                                caption(state.original, label: "Original").frame(height: laneHeight)
                             }
                             if prefs.displayMode != .original {
                                 ForEach(prefs.targets, id: \.self) { language in
-                                    if let translated = state.translations[language], !translated.isEmpty {
-                                        caption(translated, label: language)
-                                    }
+                                    caption(state.translations[language] ?? "", label: language).frame(height: laneHeight)
                                 }
                             }
                         }
@@ -118,9 +120,7 @@ struct SubtitleCanvas: View {
         }
     }
     private func caption(_ text: String, label: String) -> some View {
-        Text(text).font(captionFont).multilineTextAlignment(.center).lineSpacing(5)
-            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-            .frame(maxWidth: .infinity).accessibilityLabel("\(label): \(text)")
+        CaptionWordsView(text: text, label: label, typeface: prefs.typeface, fontSize: prefs.fontSize)
     }
 }
 struct InspectorView: View {

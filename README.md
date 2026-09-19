@@ -17,7 +17,7 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 4. Under **Languages**, choose microphone or Mac audio, a spoken language (or auto detection), and one or several translation languages. Choose Original, Translation, or Both.
 5. Click **Start listening** (⌘R). Grant the macOS audio permission when prompted. Stop with ⌘R. Language, model, and input changes apply to the next session; appearance updates immediately.
 
-**Style** controls typeface, size, text color, and background color. The toolbar’s full-screen button or **⌃⌘F** expands the same window into a content-only display: no toolbar, inspector, footer, or decorative labels. **Escape** or **⌃⌘F** exits full screen and restores the inspector. **⇧⌘P** shows sample text; **⌥⌘I** toggles the inspector in both windowed and full-screen modes. Full screen starts with the inspector hidden; its visibility is independent of the windowed layout. Captions are selectable for copying.
+**Style** controls typeface, size, text color, and background color. The toolbar’s full-screen button or **⌃⌘F** expands the same window into a content-only display: no toolbar, inspector, footer, or decorative labels. **Escape** or **⌃⌘F** exits full screen and restores the inspector. **⇧⌘P** shows sample text; **⌥⌘I** toggles the inspector in both windowed and full-screen modes. Full screen starts with the inspector hidden; its visibility is independent of the windowed layout. Words appear progressively in stable, left-aligned rows.
 
 ## Privacy and storage
 
@@ -30,7 +30,7 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 
 ## Streaming and caching
 
-Whisper is a chunked recognizer, not a native streaming speech model. The worker re-decodes the active utterance about every 600 ms when compute is available. A simple energy gate ends an utterance after 800 ms of silence; continuous speech is bounded at 12 seconds. The latest sentence (up to 32 words / 220 characters) replaces the previous one, with provisional corrections allowed. Energy sensitivity is adjustable. Recognition and translation accuracy depend on the selected models, voice, noise, and language.
+Whisper is a chunked recognizer, not a native streaming speech model. The worker re-decodes the active utterance about every 600 ms when compute is available. A simple energy gate ends an utterance after 800 ms of silence; continuous speech is bounded at 12 seconds. Each audio utterance has a stable ID. A native queue reveals one word every 100 ms, preserving words already displayed and applying recognition/translation corrections only to the unpublished suffix. Terminal punctuation can be corrected as a phrase grows. A sentence changes when the next sentence’s first word is ready; measured word rows paginate after three lines when necessary. New recognition revisions do not clear the translation rows. Fixed row positions prevent text from re-centering on every word. Energy sensitivity is adjustable. Recognition and translation accuracy depend on the selected models, voice, noise, and language.
 
 Each translation language owns an independent MLX KV cache. Every new hypothesis is tokenized with the same chat template. The worker finds the **longest common token prefix**, trims the previous cache (including generated output) back to that prefix, and feeds only the new suffix. This handles corrections and tokenizer boundary changes rather than assuming text only grows. Generated subword fragments are buffered to expose whole words (CJK text streams directly). Only models with safely trimmable, offset-addressable caches are accepted; the defaults and standard Llama models support this.
 
@@ -51,13 +51,30 @@ Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tre
 
 ## Verified on this Mac
 
-- Swift build and two Swift tests passed; four Python tests passed.
-- Development app bundle passes strict code-signature verification.
+- Swift build and eight Swift tests passed; four Python tests passed.
+- Development app bundle passes strict code-signature verification with normal Keychain access. The certificate-backed designated requirement remains identical across a rebuild.
 - Native UI verified: appearance preview, persisted typeface/colors/size, Control–Command–F into content-only full screen in the same `main` window, and Escape restoring controls and inspector.
 - Real offline Whisper Small recognized synthesized “The train leaves at nine tomorrow morning.”
 - Real Qwen translations streamed in French and Spanish. Cached output matched fresh greedy output for an original phrase, an extension, and a corrected time, with 50–51 prefix tokens reused.
 - Full JSON-lines subprocess test passed: audio frames → speech → streamed French translation, with network access disabled in the worker configuration.
 - These are pipeline/caching checks, not a translation-quality benchmark. The compact 1.5B model made wording and time-translation errors in the fixture. Select a larger compatible instruction model for better quality; meaning is not guaranteed by cache correctness.
-- Microphone and ScreenCaptureKit hardware capture require user-granted macOS permissions and have not been verified using a live user recording.
+- Live Mac audio capture verified after refreshing the Screen & System Audio Recording permission for the persistently signed app: source captions and English translation appeared while capture was running. Microphone capture remains unverified with a live recording.
 
 `scripts/requirements-tested.txt` records the dependency versions used for this verification.
+
+## Persistent local signing and capture permissions
+
+Ad-hoc signing binds macOS privacy grants to an individual executable hash. Rebuilding used to change that hash even though System Settings still displayed an enabled CaptionFlow entry. The macOS TCC log confirmed a mismatch between the granted and running code requirements.
+
+Builds now use a certificate-backed local development identity named `CaptionFlow Local Development`, stored in the login Keychain. No trusted root, Keychain password file, or privacy grant is installed. The signing key is imported as non-extractable with access for `/usr/bin/codesign`; temporary private-key files are deleted. The build refuses to silently fall back to ad-hoc signing. A separately installed Apple signing identity may instead be supplied in `CAPTIONFLOW_SIGNING_IDENTITY`.
+
+On a new development Mac, the one-time identity creation requires the owner's explicit approval:
+
+```sh
+/usr/bin/python3 scripts/sign-app.py dist/CaptionFlow.app --create-identity
+./scripts/build-app.sh
+```
+
+After migrating from the earlier ad-hoc build, the owner must refresh the old Screen & System Audio Recording permission once: quit CaptionFlow, remove its stale entry, add the current `dist/CaptionFlow.app`, enable it, and reopen the app. Subsequent builds signed with the same certificate should keep the same designated requirement. The app checks permission for the currently running build before starting Mac audio and explains the stale-grant case instead of reporting that the user declined.
+
+Apple reference: [Inside Code Signing: Requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).

@@ -13,7 +13,7 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 
 1. Under **Models**, click **Install local runtime**. This installs Python dependencies into a private virtual environment, without changing your global Python packages.
 2. Optionally **Add folders…** or drop folders on the folder controls. Add several roots, a Hugging Face `hub` cache, or directly downloaded model directories. The scanner walks nested folders and Hugging Face `snapshots`, deduplicates roots, and ignores blob stores. Select a discovered model for each role.
-3. Or leave roots empty: choose Whisper Small, Parakeet TDT 0.6B v3, or Voxtral Realtime 4B 4-bit and the app downloads its own copy when first used. Translation offers Qwen 3.5 0.8B 4-bit as the lighter option and Qwen 2.5 1.5B 4-bit as the existing default. Model downloads are substantial.
+3. Or leave roots empty: choose Whisper Small, Parakeet TDT 0.6B v3, or Voxtral Realtime 4B 4-bit and the app downloads its own copy when first used. Translation offers Qwen 3.5 in 0.8B and 2B 4-bit variants alongside the existing Qwen 2.5 1.5B 4-bit default. Model downloads are substantial.
 4. Under **Languages**, choose microphone or Mac audio, a spoken language (or auto detection), and one or several translation languages. Choose Original, Translation, or Both.
 5. Click **Start listening** (⌘R). Grant the macOS audio permission when prompted. Stop with ⌘R. Language, model, and input changes apply to the next session; appearance updates immediately.
 
@@ -49,7 +49,7 @@ python3.11 -m venv .venv
 
 `swift test` covers model discovery (including Parakeet and Voxtral, nested snapshots, duplicate roots, and incompatible weights) and preferences. Python tests cover speech-engine detection, sentence rollover, language-aware word streaming, cache reuse boundaries, and bounded audio scheduling. `scripts/integration_check.py` exercises Whisper plus cached translation. `scripts/asr_integration_check.py` exercises the Parakeet and Voxtral JSON-lines worker paths with supplied local models. Neither script downloads models.
 
-Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper), [MLX Audio](https://github.com/Blaizzy/mlx-audio), and [MLX LM](https://github.com/ml-explore/mlx-lm). Model cards: [Whisper Small](https://huggingface.co/mlx-community/whisper-small-mlx), [Parakeet TDT 0.6B v3](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3), [Voxtral Realtime 4B 4-bit](https://huggingface.co/mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit), [Qwen 3.5 0.8B MLX 4-bit](https://huggingface.co/mlx-community/Qwen3.5-0.8B-MLX-4bit), and [Qwen 2.5 1.5B Instruct 4-bit](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit).
+Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper), [MLX Audio](https://github.com/Blaizzy/mlx-audio), and [MLX LM](https://github.com/ml-explore/mlx-lm). Model cards: [Whisper Small](https://huggingface.co/mlx-community/whisper-small-mlx), [Parakeet TDT 0.6B v3](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3), [Voxtral Realtime 4B 4-bit](https://huggingface.co/mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit), [Qwen 3.5 0.8B MLX 4-bit](https://huggingface.co/mlx-community/Qwen3.5-0.8B-MLX-4bit), [Qwen 3.5 2B MLX 4-bit](https://huggingface.co/mlx-community/Qwen3.5-2B-MLX-4bit), and [Qwen 2.5 1.5B Instruct 4-bit](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit).
 
 ## Verified on this Mac
 
@@ -61,6 +61,7 @@ Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tre
 - Real Voxtral Realtime 4B 4-bit recognized the same sentence through its stateful decoder, producing six incremental source updates before the final caption.
 - Real Qwen translations streamed in French and Spanish. Cached output matched fresh greedy output for an original phrase, an extension, and a corrected time, with 50–51 prefix tokens reused.
 - Real Qwen 3.5 0.8B MLX 4-bit translated two successive English revisions into French through the fresh-decode fallback; the corrected time changed from nine to ten without a worker restart.
+- Real Qwen 3.5 2B MLX 4-bit also translated and revised the fixture correctly. On this Mac it took 0.280 s for the first short translation and 0.229 s for a revision, compared with 0.217 s and 0.154 s for Qwen 2.5 1.5B using its editable prefix cache. This single fixture is a latency check, not a quality benchmark.
 - Parakeet and Voxtral each passed while the Qwen translation model was resident in the same offline MLX worker.
 - Full JSON-lines subprocess test passed: audio frames → speech → streamed French translation, with network access disabled in the worker configuration.
 - These are pipeline/caching checks, not a translation-quality benchmark. The compact 1.5B model made wording and time-translation errors in the fixture. Select a larger compatible instruction model for better quality; meaning is not guaranteed by cache correctness.

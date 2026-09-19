@@ -20,6 +20,7 @@ enum CaptionFlowMode: String, Codable, CaseIterable {
 struct Preferences: Codable {
     static let qwen25TranslationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     static let qwen35TranslationModel = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
+    static let qwen35TwoBTranslationModel = "mlx-community/Qwen3.5-2B-MLX-4bit"
     var typeface = "System"
     var fontSize = 54.0
     var foreground = RGBA(0.96, 0.96, 0.94)

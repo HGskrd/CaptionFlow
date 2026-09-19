@@ -50,6 +50,7 @@ Evaluate time to first stable word, end-to-end lag, memory, source transcription
 
 - [Qwen 3.5 0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B)
 - [Qwen 3.5 0.8B MLX 4-bit](https://huggingface.co/mlx-community/Qwen3.5-0.8B-MLX-4bit)
+- [Qwen 3.5 2B MLX 4-bit](https://huggingface.co/mlx-community/Qwen3.5-2B-MLX-4bit)
 - [Voxtral Realtime](https://huggingface.co/mistralai/Voxtral-Mini-4B-Realtime-2602)
 - [General-purpose Voxtral](https://mistral.ai/news/voxtral/)
 - [Re-translation versus Streaming for Simultaneous Translation](https://aclanthology.org/2020.iwslt-1.27/)

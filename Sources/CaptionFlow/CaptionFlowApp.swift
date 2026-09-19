@@ -294,11 +294,12 @@ struct InspectorView: View {
     }
     private var translationModelPicker: some View {
         Picker("Translation", selection: $state.preferences.translationModel) {
+            Text("Qwen 3.5 · 2B · 4-bit").tag(Preferences.qwen35TwoBTranslationModel)
             Text("Qwen 3.5 · 0.8B · 4-bit · lighter").tag(Preferences.qwen35TranslationModel)
             Text("Qwen 2.5 · 1.5B · 4-bit").tag(Preferences.qwen25TranslationModel)
             ForEach(state.models.filter { $0.kind == .translation }) { Text("Local · \($0.name)").tag($0.path) }
             let selection = state.preferences.translationModel
-            if ![Preferences.qwen35TranslationModel, Preferences.qwen25TranslationModel].contains(selection),
+            if ![Preferences.qwen35TwoBTranslationModel, Preferences.qwen35TranslationModel, Preferences.qwen25TranslationModel].contains(selection),
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }

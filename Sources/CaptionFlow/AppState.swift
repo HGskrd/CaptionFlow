@@ -56,6 +56,9 @@ final class AppState: ObservableObject {
         return "Whisper Small · multilingual · balanced"
     }
     var translationModelNote: String {
+        if preferences.translationModel == Preferences.qwen35TwoBTranslationModel {
+            return "Qwen 3.5 · about 1.7 GB · larger model · partial revisions decode fresh"
+        }
         if preferences.translationModel == Preferences.qwen35TranslationModel {
             return "Qwen 3.5 · about 652 MB · lower memory use · partial revisions decode fresh"
         }

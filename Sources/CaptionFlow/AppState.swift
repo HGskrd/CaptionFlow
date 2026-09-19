@@ -27,6 +27,8 @@ final class AppState: ObservableObject {
     @Published var scanMessage = ""
     @Published var original = ""
     @Published var translations: [String: String] = [:]
+    @Published var originalTokens: [CaptionToken] = []
+    @Published var translationTokens: [String: [CaptionToken]] = [:]
     @Published var detectedLanguage = ""
     @Published var error: String?
     @Published var capturePermissionIssue = false
@@ -80,7 +82,7 @@ final class AppState: ObservableObject {
             error = "Choose at least one translation language, or display Original only."; return
         }
         resetPlayback()
-        error = nil; original = ""; translations = [:]; preview = false; cachedTokens = 0; revision = -1
+        error = nil; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]; preview = false; cachedTokens = 0; revision = -1
         busy = true; phase = "Loading local models…"; session = UUID()
         let id = session; let bridge = WorkerBridge(); worker = bridge
         bridge.onEvent = { [weak self] event in Task { @MainActor in guard self?.session == id else { return }; self?.receive(event) } }
@@ -153,13 +155,15 @@ final class AppState: ObservableObject {
             while !Task.isCancelled {
                 guard let self else { return }
                 if let step = self.originalStream.advanceStep() {
-                    self.originalRetention.append(step.appendedText)
-                    self.original = self.displayText(step: step, buffer: &self.originalRetention)
+                    self.originalRetention.merge(step)
+                    let display = self.display(step: step, buffer: &self.originalRetention)
+                    self.original = display.text; self.originalTokens = display.tokens
                 }
                 for language in Array(self.translationStreams.keys) {
                     if let step = self.translationStreams[language]?.advanceStep() {
-                        self.translationRetentions[language, default: CaptionRetentionBuffer()].append(step.appendedText)
-                        self.translations[language] = self.displayText(step: step, buffer: &self.translationRetentions[language, default: CaptionRetentionBuffer()])
+                        self.translationRetentions[language, default: CaptionRetentionBuffer()].merge(step)
+                        let display = self.display(step: step, buffer: &self.translationRetentions[language, default: CaptionRetentionBuffer()])
+                        self.translations[language] = display.text; self.translationTokens[language] = display.tokens
                     }
                 }
                 self.startExpirationTimerIfNeeded()
@@ -170,20 +174,27 @@ final class AppState: ObservableObject {
             }
         }
     }
-    private func displayText(step: CaptionStep, buffer: inout CaptionRetentionBuffer) -> String {
+    private func display(step: CaptionStep, buffer: inout CaptionRetentionBuffer) -> (text: String, tokens: [CaptionToken]) {
         let mode = preferences.effectiveCaptionFlow
-        if mode == .sentence { return step.fullText }
-        return buffer.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+        let tokens = mode == .sentence ? step.visibleTokens : buffer.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+        return (tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines), tokens)
     }
     private func applyCaptionFlowPreferences() {
         let mode = preferences.effectiveCaptionFlow
         if mode == .sentence {
             original = originalStream.text
-            for language in translationStreams.keys { translations[language] = translationStreams[language]?.text ?? "" }
+            originalTokens = originalStream.displayTokens
+            for language in translationStreams.keys {
+                translations[language] = translationStreams[language]?.text ?? ""
+                translationTokens[language] = translationStreams[language]?.displayTokens ?? []
+            }
         } else {
-            original = originalRetention.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+            originalTokens = originalRetention.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
+            original = originalTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             for language in translationRetentions.keys {
-                translations[language] = translationRetentions[language]?.text(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit) ?? ""
+                let tokens = translationRetentions[language]?.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit) ?? []
+                translationTokens[language] = tokens
+                translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             }
         }
         startExpirationTimerIfNeeded()
@@ -196,9 +207,12 @@ final class AppState: ObservableObject {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                 guard let self, self.preferences.effectiveCaptionFlow == .time else { break }
                 let now = Date()
-                self.original = self.originalRetention.text(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now)
+                self.originalTokens = self.originalRetention.tokens(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now)
+                self.original = self.originalTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
                 for language in self.translationRetentions.keys {
-                    self.translations[language] = self.translationRetentions[language]?.text(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now) ?? ""
+                    let tokens = self.translationRetentions[language]?.tokens(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now) ?? []
+                    self.translationTokens[language] = tokens
+                    self.translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
                 }
                 if self.originalRetention.isEmpty && self.translationRetentions.values.allSatisfy(\.isEmpty) { break }
             }
@@ -217,7 +231,7 @@ final class AppState: ObservableObject {
     func showPreview() {
         guard !active else { return }
         resetPlayback()
-        preview = true; original = ""; translations = [:]
+        preview = true; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]
         let id = UUID().uuidString
         originalStream.update("A little more understanding, one sentence at a time.", id: id)
         let samples = ["English": "A little more understanding, one sentence at a time.", "French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]

@@ -1,20 +1,30 @@
 import Foundation
 import NaturalLanguage
 
+struct CaptionToken: Identifiable, Equatable {
+    let id: Int
+    var text: String
+}
+
 struct CaptionStep: Equatable {
     let fullText: String
-    let appendedText: String
+    let appendedToken: CaptionToken
+    let visibleTokens: [CaptionToken]
+    let startsCaption: Bool
 }
 
 /// Freezes words once read; recognition may revise only the unpublished suffix.
 struct ProgressiveCaption {
     private(set) var visible: [String] = []
+    private var visibleIDs: [Int] = []
     private var hypothesis: [String] = []
     private var consumed = 0
     private var captionID = ""
     private var replaceOnNextWord = false
+    private var nextTokenID = 0
     var hasPending: Bool { consumed < hypothesis.count }
     var text: String { visible.joined().trimmingCharacters(in: .whitespacesAndNewlines) }
+    var displayTokens: [CaptionToken] { zip(visibleIDs, visible).map { CaptionToken(id: $0.0, text: $0.1) } }
 
     mutating func update(_ text: String, id: String) {
         let incoming = Self.words(text)
@@ -37,10 +47,11 @@ struct ProgressiveCaption {
     }
     mutating func advanceStep() -> CaptionStep? {
         guard hasPending else { return nil }
-        if replaceOnNextWord { visible.removeAll(); replaceOnNextWord = false }
+        var startsCaption = false
+        if replaceOnNextWord { visible.removeAll(); visibleIDs.removeAll(); replaceOnNextWord = false; startsCaption = true }
         if consumed > 0, let end = hypothesis[consumed - 1].trimmingCharacters(in: .whitespacesAndNewlines).last,
            ".!?。！？؟".contains(end) {
-            visible.removeAll()
+            visible.removeAll(); visibleIDs.removeAll(); startsCaption = true
         } else if !visible.isEmpty {
             var previous = visible[visible.count - 1].trimmingCharacters(in: .whitespacesAndNewlines)
             if let end = previous.last, ".!?。！？؟".contains(end) {
@@ -55,8 +66,11 @@ struct ProgressiveCaption {
         }
         let appendedText = hypothesis[consumed]
         visible.append(appendedText)
+        let appendedToken = CaptionToken(id: nextTokenID, text: appendedText)
+        visibleIDs.append(nextTokenID)
+        nextTokenID += 1
         consumed += 1
-        return CaptionStep(fullText: text, appendedText: appendedText)
+        return CaptionStep(fullText: text, appendedToken: appendedToken, visibleTokens: displayTokens, startsCaption: startsCaption)
     }
     mutating func advance() -> String? { advanceStep()?.fullText }
     static func words(_ text: String) -> [String] {

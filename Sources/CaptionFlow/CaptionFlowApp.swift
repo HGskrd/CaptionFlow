@@ -82,7 +82,7 @@ struct SubtitleCanvas: View {
         GeometryReader { geometry in
             ZStack {
                 prefs.background.color.ignoresSafeArea()
-                if state.original.isEmpty {
+                if !hasVisibleCaptions {
                     if !fullScreen {
                         VStack(spacing: 18) {
                             if state.busy || state.installing {
@@ -101,11 +101,11 @@ struct SubtitleCanvas: View {
                     ScrollView {
                         VStack(spacing: 32) {
                             if prefs.displayMode != .translated {
-                                caption(state.original, label: "Original").frame(height: laneHeight)
+                                caption(state.originalTokens, label: "Original").frame(height: laneHeight)
                             }
                             if prefs.displayMode != .original {
                                 ForEach(prefs.targets, id: \.self) { language in
-                                    caption(state.translations[language] ?? "", label: language).frame(height: laneHeight)
+                                    caption(state.translationTokens[language] ?? [], label: language).frame(height: laneHeight)
                                 }
                             }
                         }
@@ -119,8 +119,13 @@ struct SubtitleCanvas: View {
             .foregroundStyle(prefs.foreground.color)
         }
     }
-    private func caption(_ text: String, label: String) -> some View {
-        CaptionWordsView(text: text, label: label, typeface: prefs.typeface, fontSize: prefs.fontSize)
+    private func caption(_ tokens: [CaptionToken], label: String) -> some View {
+        CaptionWordsView(tokens: tokens, label: label, typeface: prefs.typeface, fontSize: prefs.fontSize)
+    }
+    private var hasVisibleCaptions: Bool {
+        let hasOriginal = prefs.displayMode != .translated && !state.originalTokens.isEmpty
+        let hasTranslation = prefs.displayMode != .original && prefs.targets.contains { !(state.translationTokens[$0] ?? []).isEmpty }
+        return hasOriginal || hasTranslation
     }
 }
 struct InspectorView: View {

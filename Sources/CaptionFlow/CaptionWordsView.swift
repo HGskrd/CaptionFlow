@@ -3,12 +3,12 @@ import SwiftUI
 
 /// Existing word views keep their positions as the final line grows.
 struct CaptionWordsView: View {
-    let text: String
+    let tokens: [CaptionToken]
     let label: String
     let typeface: String
     let fontSize: Double
     private struct Word: Identifiable {
-        let id: Int
+        let id: String
         let text: String
         let width: CGFloat
     }
@@ -43,30 +43,30 @@ struct CaptionWordsView: View {
         guard width > 0 else { return [] }
         var rows: [[Word]] = [[]]
         var used: CGFloat = 0
-        var index = 0
-        func append(_ text: String) {
+        func append(_ text: String, id: String) {
             let measured = ceil((text as NSString).size(withAttributes: [.font: font]).width)
             let inkWidth = ceil((text.trimmingCharacters(in: .whitespacesAndNewlines) as NSString).size(withAttributes: [.font: font]).width)
             if used + inkWidth > width && !rows[rows.count - 1].isEmpty {
                 if rows.count >= capacity { rows = [[]] } else { rows.append([]) }
                 used = 0
             }
-            rows[rows.count - 1].append(Word(id: index, text: text, width: measured))
-            index += 1; used += measured
+            rows[rows.count - 1].append(Word(id: id, text: text, width: measured))
+            used += measured
         }
-        for token in ProgressiveCaption.words(text) {
-            if (token as NSString).size(withAttributes: [.font: font]).width > width {
+        for token in tokens {
+            if (token.text as NSString).size(withAttributes: [.font: font]).width > width {
                 // Long unbroken words still fit narrow windows and very large type.
                 var part = ""
-                for character in token {
+                var partIndex = 0
+                for character in token.text {
                     let candidate = part + String(character)
                     if !part.isEmpty && (candidate as NSString).size(withAttributes: [.font: font]).width > width {
-                        append(part); part = ""
+                        append(part, id: "\(token.id)-\(partIndex)"); partIndex += 1; part = ""
                     }
                     part.append(character)
                 }
-                if !part.isEmpty { append(part) }
-            } else { append(token) }
+                if !part.isEmpty { append(part, id: "\(token.id)-\(partIndex)") }
+            } else { append(token.text, id: "\(token.id)") }
         }
         return rows
     }

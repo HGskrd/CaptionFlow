@@ -17,7 +17,7 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 4. Under **Languages**, choose microphone or Mac audio, a spoken language (or auto detection), and one or several translation languages. Choose Original, Translation, or Both.
 5. Click **Start listening** (⌘R). Grant the macOS audio permission when prompted. Stop with ⌘R. Language, model, and input changes apply to the next session; appearance updates immediately.
 
-**Style** controls typeface, size, text color, and background color. The toolbar’s full-screen button or **⌃⌘F** expands the same window into a content-only display: no toolbar, inspector, footer, or decorative labels. **Escape** or **⌃⌘F** exits full screen and restores the inspector. **⇧⌘P** shows sample text; **⌥⌘I** toggles the inspector. Captions are selectable for copying.
+**Style** controls typeface, size, text color, and background color. The toolbar’s full-screen button or **⌃⌘F** expands the same window into a content-only display: no toolbar, inspector, footer, or decorative labels. **Escape** or **⌃⌘F** exits full screen and restores the inspector. **⇧⌘P** shows sample text; **⌥⌘I** toggles the inspector in both windowed and full-screen modes. Full screen starts with the inspector hidden; its visibility is independent of the windowed layout. Captions are selectable for copying.
 
 ## Privacy and storage
 

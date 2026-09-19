@@ -19,7 +19,10 @@ struct CaptionFlowApp: App {
             }
             CommandGroup(after: .newItem) {
                 Button(state.active ? "Stop Listening" : "Start Listening") { state.active ? state.stop() : state.start() }.keyboardShortcut("r")
-                Button("Show Inspector") { state.inspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
+                Button("Toggle Inspector") {
+                    if presentation.isFullScreen { state.fullScreenInspector.toggle() }
+                    else { state.inspector.toggle() }
+                }.keyboardShortcut("i", modifiers: [.command, .option])
                 Button("Preview Appearance") { state.showPreview() }.keyboardShortcut("p", modifiers: [.command, .shift]).disabled(state.active)
             }
         }
@@ -38,7 +41,7 @@ struct ContentView: View {
     var body: some View {
         HStack(spacing: 0) {
             SubtitleCanvas(fullScreen: presentation.isFullScreen)
-            if state.inspector && !presentation.isFullScreen {
+            if presentation.isFullScreen ? state.fullScreenInspector : state.inspector {
                 Divider()
                 InspectorView().frame(width: 320)
             }
@@ -63,6 +66,9 @@ struct ContentView: View {
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }
         .onAppear { state.scan() }
+        .onChange(of: presentation.isFullScreen) { _, fullScreen in
+            if fullScreen { state.fullScreenInspector = false }
+        }
     }
 }
 struct SubtitleCanvas: View {

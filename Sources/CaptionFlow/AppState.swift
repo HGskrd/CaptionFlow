@@ -5,6 +5,7 @@ import AppKit
 final class AppState: ObservableObject {
     @Published var preferences = Preferences.load() { didSet { preferences.save() } }
     @Published var inspector = true
+    @Published var fullScreenInspector = false
     @Published var tab = "Style"
     @Published var phase = "Ready when you are"
     @Published var busy = false

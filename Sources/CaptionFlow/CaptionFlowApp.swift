@@ -1,0 +1,242 @@
+import SwiftUI
+import AppKit
+
+@main
+struct CaptionFlowApp: App {
+    @StateObject private var state = AppState()
+    @StateObject private var presentation = WindowPresentation()
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    var body: some Scene {
+        Window("CaptionFlow", id: "main") {
+            ContentView().environmentObject(state).environmentObject(presentation)
+                .onAppear { delegate.onTerminate = { state.stop() } }
+        }
+        .defaultSize(width: 1160, height: 740)
+        .commands {
+            CommandGroup(after: .toolbar) {
+                Button(presentation.isFullScreen ? "Exit Full Screen" : "Enter Full Screen") { presentation.toggleFullScreen() }
+                    .keyboardShortcut("f", modifiers: [.control, .command])
+            }
+            CommandGroup(after: .newItem) {
+                Button(state.active ? "Stop Listening" : "Start Listening") { state.active ? state.stop() : state.start() }.keyboardShortcut("r")
+                Button("Show Inspector") { state.inspector.toggle() }.keyboardShortcut("i", modifiers: [.command, .option])
+                Button("Preview Appearance") { state.showPreview() }.keyboardShortcut("p", modifiers: [.command, .shift]).disabled(state.active)
+            }
+        }
+        Settings { InspectorView().environmentObject(state).frame(width: 380, height: 640) }
+    }
+}
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var onTerminate: (() -> Void)?
+    func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
+    func applicationWillTerminate(_ notification: Notification) { onTerminate?() }
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}
+struct ContentView: View {
+    @EnvironmentObject private var state: AppState
+    @EnvironmentObject private var presentation: WindowPresentation
+    var body: some View {
+        HStack(spacing: 0) {
+            SubtitleCanvas(fullScreen: presentation.isFullScreen)
+            if state.inspector && !presentation.isFullScreen {
+                Divider()
+                InspectorView().frame(width: 320)
+            }
+        }
+        .frame(minWidth: 780, minHeight: 540)
+        .background(WindowAttachment(presentation: presentation).frame(width: 0, height: 0))
+        .ignoresSafeArea(edges: presentation.isFullScreen ? .all : [])
+        .toolbar {
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button { presentation.toggleFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
+                    .help("Full screen (⌃⌘F)").accessibilityLabel("Full screen")
+                Button { withAnimation(.easeInOut(duration: 0.18)) { state.inspector.toggle() } } label: { Image(systemName: "sidebar.right") }
+                    .help("Inspector (⌥⌘I)").accessibilityLabel("Inspector")
+                Button { state.active ? state.stop() : state.start() } label: {
+                    Label(state.active ? "Stop" : "Start listening", systemImage: state.active ? "stop.fill" : "mic.fill")
+                }
+                .buttonStyle(.borderedProminent).disabled(state.installing).help("Start or stop (⌘R)")
+            }
+        }
+        .toolbar(presentation.isFullScreen ? .hidden : .visible, for: .windowToolbar)
+        .alert("CaptionFlow needs attention", isPresented: Binding(get: { state.error != nil }, set: { if !$0 { state.error = nil } })) {
+            Button("OK") { state.error = nil }
+        } message: { Text(state.error ?? "") }
+        .onAppear { state.scan() }
+    }
+}
+struct SubtitleCanvas: View {
+    @EnvironmentObject private var state: AppState
+    var fullScreen = false
+    private var prefs: Preferences { state.preferences }
+    private var captionFont: Font { prefs.typeface == "System" ? .system(size: prefs.fontSize, weight: .medium) : .custom(prefs.typeface, size: prefs.fontSize) }
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                prefs.background.color.ignoresSafeArea()
+                if state.original.isEmpty {
+                    if !fullScreen {
+                        VStack(spacing: 18) {
+                            if state.busy || state.installing {
+                                ProgressView().controlSize(.small)
+                                Text(state.phase).font(.body).multilineTextAlignment(.center)
+                            } else {
+                                Text(state.listening ? "Listening…" : "Ready to listen")
+                                    .font(.system(size: 28, weight: .medium))
+                            }
+                        }
+                        .foregroundStyle(prefs.foreground.color.opacity(0.7)).padding(40)
+                    }
+                } else {
+                    ScrollView {
+                        VStack(spacing: 32) {
+                            if prefs.displayMode != .translated {
+                                caption(state.original, label: "Original")
+                            }
+                            if prefs.displayMode != .original {
+                                ForEach(prefs.targets, id: \.self) { language in
+                                    if let translated = state.translations[language], !translated.isEmpty {
+                                        caption(translated, label: language)
+                                    }
+                                }
+                            }
+                        }
+                        .padding(.horizontal, max(32, geometry.size.width * 0.065))
+                        .padding(.vertical, 32)
+                        .frame(maxWidth: .infinity, minHeight: geometry.size.height)
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
+            .foregroundStyle(prefs.foreground.color)
+        }
+    }
+    private func caption(_ text: String, label: String) -> some View {
+        Text(text).font(captionFont).multilineTextAlignment(.center).lineSpacing(5)
+            .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
+            .frame(maxWidth: .infinity).accessibilityLabel("\(label): \(text)")
+    }
+}
+struct InspectorView: View {
+    @EnvironmentObject private var state: AppState
+    @State private var customLanguage = ""
+    private let fonts = ["System"] + NSFontManager.shared.availableFontFamilies.sorted()
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("Inspector", selection: $state.tab) { Text("Style").tag("Style"); Text("Languages").tag("Languages"); Text("Models").tag("Models") }.pickerStyle(.segmented).labelsHidden().padding(16)
+            Form {
+                switch state.tab {
+                case "Style": style
+                case "Languages": languages
+                default: models
+                }
+            }
+            .formStyle(.grouped)
+        }
+        .background(.background.secondary)
+    }
+    private var style: some View {
+        Group {
+            Section("Typography") {
+                Picker("Typeface", selection: $state.preferences.typeface) { ForEach(fonts, id: \.self) { Text($0).tag($0) } }
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack { Text("Size"); Spacer(); Text("\(Int(state.preferences.fontSize)) pt").foregroundStyle(.secondary).monospacedDigit() }
+                    Slider(value: $state.preferences.fontSize, in: 24...120, step: 2).accessibilityLabel("Font size")
+                }
+            }
+            Section("Canvas") {
+                ColorPicker("Text", selection: Binding(get: { state.preferences.foreground.color }, set: { state.preferences.foreground = RGBA($0) }), supportsOpacity: false)
+                ColorPicker("Background", selection: Binding(get: { state.preferences.background.color }, set: { state.preferences.background = RGBA($0) }), supportsOpacity: false)
+                HStack {
+                    preset("Midnight", fg: RGBA(0.96, 0.96, 0.94), bg: RGBA(0.065, 0.075, 0.085))
+                    preset("Paper", fg: RGBA(0.14, 0.16, 0.17), bg: RGBA(0.96, 0.95, 0.91))
+                    preset("Cinema", fg: RGBA(1, 0.86, 0.3), bg: RGBA(0, 0, 0))
+                }
+            }
+            Section {
+                Button("Preview", systemImage: "text.quote") { state.showPreview() }.disabled(state.active)
+            }
+        }
+    }
+    private func preset(_ title: String, fg: RGBA, bg: RGBA) -> some View {
+        Button { state.preferences.foreground = fg; state.preferences.background = bg } label: {
+            Text("Aa").font(.system(size: 20, weight: .medium)).foregroundStyle(fg.color).frame(maxWidth: .infinity).padding(.vertical, 9).background(bg.color, in: RoundedRectangle(cornerRadius: 6)).overlay(RoundedRectangle(cornerRadius: 6).stroke(.gray.opacity(0.25)))
+        }.buttonStyle(.plain).help(title).accessibilityLabel("\(title) colors")
+    }
+    private var languages: some View {
+        Group {
+            Section("Listening") {
+                Picker("Audio", selection: $state.preferences.source) { ForEach(AudioSource.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                Picker("Spoken language", selection: $state.preferences.sourceLanguage) {
+                    Text("Detect automatically").tag("auto")
+                    ForEach(["en", "fr", "es", "de", "it", "pt", "nl", "pl", "ru", "uk", "ar", "hi", "zh", "ja", "ko"], id: \.self) { code in Text(Locale.current.localizedString(forLanguageCode: code) ?? code).tag(code) }
+                }
+                Text(state.preferences.source == .microphone ? "Uses your Mac’s current input device." : "Captures audio playing on your Mac. macOS may request Screen & System Audio Recording access.").font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active)
+            Section("On screen") {
+                Picker("Show", selection: $state.preferences.displayMode) { ForEach(DisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+            }.disabled(state.active)
+            Section("Translate into") {
+                ForEach(Array(Set(Preferences.languages + state.preferences.targets)).sorted(), id: \.self) { language in
+                    Toggle(language, isOn: Binding(get: { state.preferences.targets.contains(language) }, set: { enabled in
+                        if enabled { state.preferences.targets.append(language) } else { state.preferences.targets.removeAll { $0 == language } }
+                    })).toggleStyle(.checkbox)
+                }
+                HStack {
+                    TextField("Another language", text: $customLanguage)
+                    Button { let value = customLanguage.trimmingCharacters(in: .whitespacesAndNewlines); if !value.isEmpty && !state.preferences.targets.contains(value) { state.preferences.targets.append(value) }; customLanguage = "" } label: { Image(systemName: "plus") }.accessibilityLabel("Add translation language")
+                }
+                Text("Each language streams separately. More languages increase delay. Stop listening to change language or model settings.").font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active)
+        }
+    }
+    private var models: some View {
+        Group {
+            Section("Local inference") {
+                Label(state.installed ? "MLX runtime installed" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
+                if state.busy { ProgressView().controlSize(.small); Text(state.phase).font(.caption).foregroundStyle(.secondary) }
+                if !state.installed {
+                    Text("Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)
+                    TextField("Python 3.11+ path", text: $state.preferences.pythonPath).font(.caption)
+                    Button(state.installing ? "Installing…" : "Install local runtime") { state.install() }.disabled(state.installing)
+                    if state.installing { ProgressView().controlSize(.small); Text(state.phase).font(.caption).lineLimit(4) }
+                }
+            }
+            Section("Model folders · optional") {
+                Text("Add any number of roots. Existing MLX models are used in place, including Hugging Face snapshots.").font(.caption).foregroundStyle(.secondary)
+                ForEach(state.preferences.roots, id: \.self) { path in
+                    HStack {
+                        Image(systemName: "folder").foregroundStyle(.secondary)
+                        VStack(alignment: .leading) { Text(URL(fileURLWithPath: path).lastPathComponent); Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(path) }
+                        Spacer()
+                        Button { state.preferences.roots.removeAll { $0 == path }; state.scan() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).accessibilityLabel("Remove \(path)")
+                    }
+                }
+                HStack {
+                    Button("Add folders…", systemImage: "folder.badge.plus") { state.addRoots() }
+                    Spacer()
+                    Button { state.scan() } label: { Image(systemName: "arrow.clockwise") }.disabled(state.scanning).help("Rescan folders")
+                }
+                .dropDestination(for: URL.self) { urls, _ in state.addRoots(urls); return true }
+                Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active || state.installing)
+            Section("Models") {
+                modelPicker("Speech", kind: .speech, selection: $state.preferences.whisperModel, fallback: "mlx-community/whisper-small-mlx", label: "Whisper Small · download if needed")
+                modelPicker("Translation", kind: .translation, selection: $state.preferences.translationModel, fallback: "mlx-community/Qwen2.5-1.5B-Instruct-4bit", label: "Qwen 2.5 · 1.5B · 4-bit")
+                Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
+                Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Models must be MLX-compatible; GGUF and PyTorch-only weights are not interchangeable.").font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active || state.installing)
+            DisclosureGroup("Audio sensitivity") {
+                Slider(value: $state.preferences.silenceThreshold, in: 0.001...0.04).accessibilityLabel("Silence threshold")
+                Text("Lower this for quiet voices; raise it to ignore background noise.").font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active)
+        }
+    }
+    private func modelPicker(_ title: String, kind: LocalModel.Kind, selection: Binding<String>, fallback: String, label: String) -> some View {
+        Picker(title, selection: selection) {
+            Text(label).tag(fallback)
+            ForEach(state.models.filter { $0.kind == kind }) { Text($0.name).tag($0.path) }
+            if selection.wrappedValue != fallback && !state.models.contains(where: { $0.path == selection.wrappedValue }) { Text(URL(fileURLWithPath: selection.wrappedValue).lastPathComponent + " (saved)").tag(selection.wrappedValue) }
+        }
+    }
+}

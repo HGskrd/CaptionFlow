@@ -63,12 +63,14 @@ def resolve_model(value, cache_dir, allow_downloads):
 
 class AudioInbox:
     """Bounded live backlog; coalesces revisions rather than queuing every frame."""
-    def __init__(self, threshold):
+    def __init__(self, threshold, streaming=False):
         import numpy as np
         self.np = np
         self.threshold = threshold
         self.condition = threading.Condition()
         self.jobs = collections.deque(maxlen=3)
+        self.stream_jobs = collections.deque()
+        self.streaming = streaming
         self.frames = []
         self.preroll = collections.deque(maxlen=2)
         self.size = 0
@@ -84,7 +86,8 @@ class AudioInbox:
         if len(frame) == 0 or len(frame) > 16000 or not np.all(np.isfinite(frame)):
             return
         voiced = float(np.sqrt(np.mean(frame * frame))) >= self.threshold
-        if not self.frames:
+        started = not self.frames
+        if started:
             if not voiced:
                 self.preroll.append(frame)
                 return
@@ -96,6 +99,13 @@ class AudioInbox:
         self.since_update += len(frame)
         self.silent = 0 if voiced else self.silent + len(frame)
         final = self.silent >= 12800 or self.size >= 192000
+        if self.streaming:
+            chunk = self.np.concatenate(self.frames) if started else frame
+            with self.condition:
+                if len(self.stream_jobs) >= 128:
+                    raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
+                self.stream_jobs.append((self.utterance, chunk, final))
+                self.condition.notify()
         if self.since_update >= 9600 or final:
             self.publish(final)
         if final:
@@ -122,6 +132,12 @@ class AudioInbox:
                 elif request.get("type") == "stop":
                     break
             self.publish(True)
+            if self.streaming and self.frames:
+                with self.condition:
+                    if len(self.stream_jobs) >= 128:
+                        raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
+                    self.stream_jobs.append((self.utterance, self.np.empty(0, dtype=self.np.float32), True))
+                    self.condition.notify()
         except Exception as exc:
             self.error = str(exc)
         finally:
@@ -137,6 +153,13 @@ class AudioInbox:
             job = self.jobs.pop()
             self.jobs.clear()
             return job
+
+    def next_stream(self):
+        with self.condition:
+            self.condition.wait_for(lambda: self.stream_jobs or self.closed)
+            if not self.stream_jobs:
+                return None
+            return self.stream_jobs.popleft()
 
 
 class PrefixTranslator:
@@ -180,6 +203,87 @@ class PrefixTranslator:
         emit("translation", revision=revision, language=language, text=text_out.strip(), cached_tokens=reuse, final=True)
 
 
+def speech_engine(model_path):
+    with open(Path(model_path) / "config.json", encoding="utf-8") as handle:
+        config = json.load(handle)
+    if config.get("n_mels") is not None and config.get("n_audio_ctx") is not None:
+        return "whisper"
+    if config.get("model_type") == "voxtral_realtime":
+        return "voxtral_realtime"
+    target = str(config.get("target", ""))
+    decoding = config.get("decoding", {})
+    if "EncDecRNNT" in target or decoding.get("model_type") in {"tdt", "rnnt", "ctc"}:
+        return "parakeet"
+    raise ValueError("Unsupported speech model. Choose an MLX Whisper, Parakeet, or Voxtral Realtime model.")
+
+
+def run_snapshot_speech(inbox, engine, model, model_path, source_language, publish):
+    import mlx.core as mx
+    import mlx_whisper
+    last_text = None
+    last_utterance = None
+    while (job := inbox.next()) is not None:
+        utterance, samples, final = job
+        start = time.monotonic()
+        if engine == "whisper":
+            result = mlx_whisper.transcribe(
+                samples, path_or_hf_repo=model_path,
+                language=None if source_language == "auto" else source_language,
+                task="transcribe", verbose=None, condition_on_previous_text=False,
+                temperature=0.0, word_timestamps=False,
+            )
+            segments = result.get("segments", [])
+            reliable = [segment.get("text", "") for segment in segments
+                        if segment.get("no_speech_prob", 0) < 0.6 and segment.get("avg_logprob", 0) > -1.0]
+            text = " ".join(" ".join(reliable).split())
+            language = result.get("language", source_language)
+        else:
+            result = model.generate(mx.array(samples, dtype=mx.float32))
+            text = " ".join(result.text.split())
+            language = getattr(result, "language", None) or source_language
+        if not text or (text == last_text and utterance == last_utterance):
+            continue
+        last_text = text
+        last_utterance = utterance
+        publish(utterance, text, language, final, time.monotonic() - start)
+
+
+def run_voxtral_stream(inbox, model, source_language, publish):
+    session = None
+    utterance_text = ""
+    last_visible = ""
+    started = 0.0
+    while (job := inbox.next_stream()) is not None:
+        utterance, samples, final = job
+        if session is None:
+            session = model.create_streaming_session(transcription_delay_ms=480, max_tokens=512)
+            utterance_text = ""
+            last_visible = ""
+            started = time.monotonic()
+        session.feed(samples)
+        if final:
+            session.close()
+        attempts = 0
+        while attempts < (512 if final else 8):
+            deltas = session.step(max_decode_tokens=16)
+            if deltas:
+                utterance_text += "".join(deltas)
+                visible = visible_words(utterance_text, final=session.done)
+                if visible and visible != last_visible:
+                    last_visible = visible
+                    publish(utterance, visible, source_language, final and session.done, time.monotonic() - started)
+            if session.done or (not final and not deltas):
+                break
+            attempts += 1
+        if final:
+            if not session.done:
+                raise RuntimeError("Voxtral could not finalize the current utterance.")
+            final_text = visible_words(utterance_text, final=True)
+            if final_text and final_text != last_visible:
+                publish(utterance, final_text, source_language, True, time.monotonic() - started)
+            session = None
+
+
 def main():
     configuration = json.loads(sys.stdin.readline())
     if configuration.get("type") != "configure":
@@ -188,13 +292,18 @@ def main():
     if not allow:
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
-    import mlx.core as mx
-    import mlx_whisper
-    from mlx_whisper.transcribe import ModelHolder
     cache_dir = configuration["cache_dir"]
     speech = resolve_model(configuration["speech_model"], cache_dir, allow)
-    emit("status", message="Loading speech model into MLX…")
-    ModelHolder.get_model(speech, mx.float16)
+    engine = speech_engine(speech)
+    emit("status", message=f"Loading {engine.replace('_', ' ').title()} into MLX…")
+    speech_model = None
+    if engine == "whisper":
+        import mlx.core as mx
+        from mlx_whisper.transcribe import ModelHolder
+        ModelHolder.get_model(speech, mx.float16)
+    else:
+        from mlx_audio.stt.utils import load_model
+        speech_model = load_model(speech, model_type=engine)
     targets = list(dict.fromkeys(configuration.get("targets", [])))
     translator = None
     if targets:
@@ -202,30 +311,22 @@ def main():
         emit("status", message="Loading translation model into MLX…")
         translator = PrefixTranslator(translation_path)
     source_language = configuration.get("source_language", "auto")
-    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)))
+    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=engine == "voxtral_realtime")
     reader = threading.Thread(target=inbox.read, daemon=True)
     reader.start()
     emit("ready")
     revision = 0
-    last_text = None
-    last_utterance = None
-    while (job := inbox.next()) is not None:
-        utterance, samples, final = job
-        start = time.monotonic()
-        result = mlx_whisper.transcribe(samples, path_or_hf_repo=speech, language=None if source_language == "auto" else source_language,
-                                       task="transcribe", verbose=None, condition_on_previous_text=False,
-                                       temperature=0.0, word_timestamps=False)
-        segments = result.get("segments", [])
-        reliable = [segment.get("text", "") for segment in segments
-                    if segment.get("no_speech_prob", 0) < 0.6 and segment.get("avg_logprob", 0) > -1.0]
-        text = " ".join(" ".join(reliable).split())
-        if not text or (text == last_text and utterance == last_utterance):
-            continue
-        last_text = text; last_utterance = utterance; revision += 1
-        language = result.get("language", source_language)
-        emit("source", revision=revision, caption_id=str(utterance), text=text, language=language, final=final, latency=time.monotonic() - start)
+    def publish(utterance, text, language, final, latency):
+        nonlocal revision
+        revision += 1
+        emit("source", revision=revision, caption_id=str(utterance), text=text,
+             language=language, final=final, latency=latency)
         for target in targets:
             translator.translate(text, target, language, revision)
+    if engine == "voxtral_realtime":
+        run_voxtral_stream(inbox, speech_model, source_language, publish)
+    else:
+        run_snapshot_speech(inbox, engine, speech_model, speech, source_language, publish)
     if inbox.error:
         raise RuntimeError(inbox.error)
 

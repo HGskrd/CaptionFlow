@@ -1,5 +1,7 @@
+import json
 import pathlib
 import sys
+import tempfile
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'Sources/CaptionFlow/Resources/worker'))
 from caption_core import cache_reuse, latest_caption, visible_words
@@ -41,5 +43,20 @@ class CaptionsTest(unittest.TestCase):
         for _ in range(200): inbox.feed(voice)
         self.assertLessEqual(len(inbox.jobs), 3)
         self.assertLess(inbox.size, 192000)
+
+    def test_speech_engine_detection(self):
+        from worker import speech_engine
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            cases = [
+                ({"n_mels": 80, "n_audio_ctx": 1500}, "whisper"),
+                ({"target": "nemo.collections.asr.models.EncDecRNNTBPEModel"}, "parakeet"),
+                ({"model_type": "voxtral_realtime"}, "voxtral_realtime"),
+            ]
+            for index, (config, expected) in enumerate(cases):
+                model = root / str(index)
+                model.mkdir()
+                (model / "config.json").write_text(json.dumps(config))
+                self.assertEqual(speech_engine(model), expected)
 
 if __name__ == '__main__': unittest.main()

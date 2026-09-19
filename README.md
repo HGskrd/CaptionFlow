@@ -13,7 +13,7 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 
 1. Under **Models**, click **Install local runtime**. This installs Python dependencies into a private virtual environment, without changing your global Python packages.
 2. Optionally **Add folders…** or drop folders on the folder controls. Add several roots, a Hugging Face `hub` cache, or directly downloaded model directories. The scanner walks nested folders and Hugging Face `snapshots`, deduplicates roots, and ignores blob stores. Select a discovered model for each role.
-3. Or leave roots empty: the app downloads its own Whisper Small and Qwen 2.5 1.5B 4-bit copies when you first start. Initial downloads are substantial (roughly 1.5 GB together).
+3. Or leave roots empty: choose Whisper Small, Parakeet TDT 0.6B v3, or Voxtral Realtime 4B 4-bit and the app downloads its own copy when first used. Translation defaults to Qwen 2.5 1.5B 4-bit. Model downloads are substantial.
 4. Under **Languages**, choose microphone or Mac audio, a spoken language (or auto detection), and one or several translation languages. Choose Original, Translation, or Both.
 5. Click **Start listening** (⌘R). Grant the macOS audio permission when prompted. Stop with ⌘R. Language, model, and input changes apply to the next session; appearance updates immediately.
 
@@ -23,14 +23,14 @@ Build with Xcode 15.3+ / Swift 5.10+. Apple Silicon is required for MLX. The Swi
 
 - Swift captures microphone audio with AVAudioEngine or Mac audio with ScreenCaptureKit. Mac audio uses a display filter but registers only an audio output; no screen images are recorded.
 - Audio is converted to 16 kHz mono float32 in memory and sent through a private subprocess pipe. No HTTP server is opened. Audio and transcripts are not written to disk or sent to a service.
-- The Python worker uses **MLX Whisper** for speech and **MLX LM** for translation. Both run locally on Apple Silicon. The app is Swift; the inference runtime is Python, not an all-Swift MLX implementation.
+- The Python worker supports **MLX Whisper**, **Parakeet TDT**, and **Voxtral Realtime** for speech, with **MLX LM** for translation. All inference runs locally on Apple Silicon. The app is Swift; the inference runtime is Python.
 - The app-managed runtime and model cache live under `~/Library/Application Support/CaptionFlow/`. Imported model roots are used in place, never moved or deleted. Preferences are stored in the app's UserDefaults domain.
 - Turn off **Download missing models** for offline-only startup. The worker sets Hugging Face and Transformers offline mode, and resolves repositories using `local_files_only=True`. Existing local folders work without copying into the app cache. Dependencies and model files must already be installed.
 - A root is a discovery location, not an automatic choice: explicitly select the discovered speech and translation models. MLX Whisper needs a converted config (`n_mels`, `n_audio_ctx`) and MLX weights. Translation requires MLX-compatible weights and tokenizer files. GGUF, incomplete snapshots, and arbitrary PyTorch checkpoints are not compatible.
 
 ## Streaming and caching
 
-Whisper is a chunked recognizer, not a native streaming speech model. The worker re-decodes the active utterance about every 600 ms when compute is available. A simple energy gate ends an utterance after 800 ms of silence; continuous speech is bounded at 12 seconds. Each audio utterance has a stable ID. A native queue reveals one word every 100 ms, preserving words already displayed and applying recognition/translation corrections only to the unpublished suffix. Terminal punctuation can be corrected as a phrase grows. A sentence changes when the next sentence’s first word is ready; measured word rows paginate after three lines when necessary. New recognition revisions do not clear the translation rows. Fixed row positions prevent text from re-centering on every word. Energy sensitivity is adjustable. Recognition and translation accuracy depend on the selected models, voice, noise, and language.
+Whisper and Parakeet re-decode the active utterance about every 600 ms when compute is available. Voxtral uses its stateful realtime decoder and consumes each audio frame once. A simple energy gate ends an utterance after 800 ms of silence; continuous speech is bounded at 12 seconds. Each audio utterance has a stable ID. A native queue reveals one word every 100 ms, preserving words already displayed and applying recognition/translation corrections only to the unpublished suffix. Terminal punctuation can be corrected as a phrase grows. A sentence changes when the next sentence’s first word is ready; measured word rows paginate after three lines when necessary. New recognition revisions do not clear the translation rows. Fixed row positions prevent text from re-centering on every word. Energy sensitivity is adjustable. Recognition and translation accuracy depend on the selected models, voice, noise, and language.
 
 Each translation language owns an independent MLX KV cache. Every new hypothesis is tokenized with the same chat template. The worker finds the **longest common token prefix**, trims the previous cache (including generated output) back to that prefix, and feeds only the new suffix. This handles corrections and tokenizer boundary changes rather than assuming text only grows. Generated subword fragments are buffered to expose whole words (CJK text streams directly). Only models with safely trimmable, offset-addressable caches are accepted; the defaults and standard Llama models support this.
 
@@ -45,17 +45,20 @@ python3.11 -m venv .venv
 .venv/bin/python scripts/test_worker.py
 ```
 
-`swift test` covers model discovery (including nested snapshots, duplicate roots, and incompatible weights) and preferences. Python tests cover sentence rollover, language-aware word streaming, cache reuse boundaries, and bounded audio scheduling. `scripts/integration_check.py` exercises actual offline MLX transcription and cached translation with supplied local model paths; it does not download models.
+`swift test` covers model discovery (including Parakeet and Voxtral, nested snapshots, duplicate roots, and incompatible weights) and preferences. Python tests cover speech-engine detection, sentence rollover, language-aware word streaming, cache reuse boundaries, and bounded audio scheduling. `scripts/integration_check.py` exercises Whisper plus cached translation. `scripts/asr_integration_check.py` exercises the Parakeet and Voxtral JSON-lines worker paths with supplied local models. Neither script downloads models.
 
-Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper), [MLX LM](https://github.com/ml-explore/mlx-lm). Default model cards: [Whisper Small](https://huggingface.co/mlx-community/whisper-small-mlx), [Qwen 2.5 1.5B Instruct 4-bit](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit).
+Upstream libraries: [MLX Whisper](https://github.com/ml-explore/mlx-examples/tree/main/whisper), [MLX Audio](https://github.com/Blaizzy/mlx-audio), and [MLX LM](https://github.com/ml-explore/mlx-lm). Model cards: [Whisper Small](https://huggingface.co/mlx-community/whisper-small-mlx), [Parakeet TDT 0.6B v3](https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3), [Voxtral Realtime 4B 4-bit](https://huggingface.co/mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit), and [Qwen 2.5 1.5B Instruct 4-bit](https://huggingface.co/mlx-community/Qwen2.5-1.5B-Instruct-4bit).
 
 ## Verified on this Mac
 
-- Swift build and eight Swift tests passed; four Python tests passed.
+- Swift build and nine Swift tests passed; five Python tests passed.
 - Development app bundle passes strict code-signature verification with normal Keychain access. The certificate-backed designated requirement remains identical across a rebuild.
 - Native UI verified: appearance preview, persisted typeface/colors/size, Control–Command–F into content-only full screen in the same `main` window, and Escape restoring controls and inspector.
 - Real offline Whisper Small recognized synthesized “The train leaves at nine tomorrow morning.”
+- Real Parakeet TDT 0.6B v3 recognized “The train leaves at 9 tomorrow morning.” through the packaged worker.
+- Real Voxtral Realtime 4B 4-bit recognized the same sentence through its stateful decoder, producing six incremental source updates before the final caption.
 - Real Qwen translations streamed in French and Spanish. Cached output matched fresh greedy output for an original phrase, an extension, and a corrected time, with 50–51 prefix tokens reused.
+- Parakeet and Voxtral each passed while the Qwen translation model was resident in the same offline MLX worker.
 - Full JSON-lines subprocess test passed: audio frames → speech → streamed French translation, with network access disabled in the worker configuration.
 - These are pipeline/caching checks, not a translation-quality benchmark. The compact 1.5B model made wording and time-translation errors in the fixture. Select a larger compatible instruction model for better quality; meaning is not guaranteed by cache correctness.
 - Live Mac audio capture verified after refreshing the Screen & System Audio Recording permission for the persistently signed app: source captions and English translation appeared while capture was running. Microphone capture remains unverified with a live recording.

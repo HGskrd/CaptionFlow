@@ -43,6 +43,16 @@ struct LocalModel: Identifiable, Sendable {
 }
 struct ScanResult: Sendable { var models: [LocalModel]; var warnings: [String] }
 enum ModelDiscovery {
+    static func isSpeechModel(config: [String: Any]) -> Bool {
+        if config["n_mels"] != nil && config["n_audio_ctx"] != nil { return true }
+        if (config["model_type"] as? String) == "voxtral_realtime" { return true }
+        if let target = config["target"] as? String, target.localizedCaseInsensitiveContains("EncDecRNNT") { return true }
+        if let decoding = config["decoding"] as? [String: Any],
+           ["tdt", "rnnt", "ctc"].contains(decoding["model_type"] as? String ?? ""),
+           config["preprocessor"] != nil,
+           config["encoder"] != nil { return true }
+        return false
+    }
     static func scan(roots: [String]) -> ScanResult {
         var models: [LocalModel] = []; var seen = Set<String>(); var warnings: [String] = []
         let fm = FileManager.default
@@ -65,7 +75,7 @@ enum ModelDiscovery {
                       let contents = try? fm.contentsOfDirectory(atPath: folder.path),
                       contents.contains(where: { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") }) else { continue }
                 let kind: LocalModel.Kind
-                if config["n_mels"] != nil && config["n_audio_ctx"] != nil { kind = .speech }
+                if isSpeechModel(config: config) { kind = .speech }
                 else if config["model_type"] != nil && contents.contains("tokenizer_config.json") { kind = .translation }
                 else { continue }
                 let parent = folder.deletingLastPathComponent()

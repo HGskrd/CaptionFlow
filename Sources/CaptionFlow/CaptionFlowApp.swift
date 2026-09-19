@@ -227,7 +227,8 @@ struct InspectorView: View {
                 Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active || state.installing)
             Section("Models") {
-                modelPicker("Speech", kind: .speech, selection: $state.preferences.whisperModel, fallback: "mlx-community/whisper-small-mlx", label: "Whisper Small · download if needed")
+                speechModelPicker
+                Text(state.speechModelNote).font(.caption).foregroundStyle(.secondary)
                 modelPicker("Translation", kind: .translation, selection: $state.preferences.translationModel, fallback: "mlx-community/Qwen2.5-1.5B-Instruct-4bit", label: "Qwen 2.5 · 1.5B · 4-bit")
                 Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
                 Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Models must be MLX-compatible; GGUF and PyTorch-only weights are not interchangeable.").font(.caption).foregroundStyle(.secondary)
@@ -238,10 +239,23 @@ struct InspectorView: View {
             }.disabled(state.active)
         }
     }
+    private var speechModelPicker: some View {
+        Picker("Speech", selection: $state.preferences.whisperModel) {
+            Text("Whisper Small").tag("mlx-community/whisper-small-mlx")
+            Text("Parakeet TDT 0.6B v3").tag("mlx-community/parakeet-tdt-0.6b-v3")
+            Text("Voxtral Realtime 4B · 4-bit").tag("mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit")
+            ForEach(state.models.filter { $0.kind == .speech }) { Text("Local · \($0.name)").tag($0.path) }
+            let selection = state.preferences.whisperModel
+            if !["mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
+               !state.models.contains(where: { $0.path == selection }) {
+                Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
+            }
+        }
+    }
     private func modelPicker(_ title: String, kind: LocalModel.Kind, selection: Binding<String>, fallback: String, label: String) -> some View {
         Picker(title, selection: selection) {
             Text(label).tag(fallback)
-            ForEach(state.models.filter { $0.kind == kind }) { Text($0.name).tag($0.path) }
+            ForEach(state.models.filter { $0.kind == kind }) { Text("Local · \($0.name)").tag($0.path) }
             if selection.wrappedValue != fallback && !state.models.contains(where: { $0.path == selection.wrappedValue }) { Text(URL(fileURLWithPath: selection.wrappedValue).lastPathComponent + " (saved)").tag(selection.wrappedValue) }
         }
     }

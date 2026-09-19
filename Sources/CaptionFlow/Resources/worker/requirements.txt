@@ -1,4 +1,5 @@
 mlx-whisper==0.4.3
+mlx-audio==0.5.4
 mlx-lm==0.31.1
 numpy>=1.26,<3
 huggingface-hub>=0.34,<2

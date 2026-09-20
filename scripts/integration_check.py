@@ -48,7 +48,7 @@ def main():
         for language in ['French', 'Spanish']:
             for revision, text in enumerate(phrases):
                 events.clear()
-                translator.translate(text, language, 'en', revision)
+                translator.translate(text, language, 'en', revision, 'fixture')
                 final = events[-1]
                 assert final['text'] and final['final']
                 if revision > 0:
@@ -57,7 +57,7 @@ def main():
                 saved = translator.states.pop(language)
                 cached_result = final['text']
                 events.clear()
-                translator.translate(text, language, 'en', revision)
+                translator.translate(text, language, 'en', revision, 'fixture')
                 assert events[-1]['text'] == cached_result, (cached_result, events[-1]['text'])
                 translator.states[language] = saved
                 print(json.dumps({'check': 'cached_translation_matches_fresh', 'language': language,

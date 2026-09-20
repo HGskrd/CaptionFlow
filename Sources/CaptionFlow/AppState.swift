@@ -43,7 +43,7 @@ final class AppState: ObservableObject {
     private var revision = -1
     private var captionID = ""
     private var originalStream = ProgressiveCaption()
-    private var translationStreams: [String: ProgressiveCaption] = [:]
+    private var translationStreams: [String: RevisableCaption] = [:]
     private var originalRetention = CaptionRetentionBuffer()
     private var translationRetentions: [String: CaptionRetentionBuffer] = [:]
     private var playbackTask: Task<Void, Never>?
@@ -144,8 +144,26 @@ final class AppState: ObservableObject {
             detectedLanguage = (event["language"] as? String ?? "").uppercased()
             latency = event["latency"] as? Double ?? 0
         case "translation":
-            guard event["revision"] as? Int == revision, let language = event["language"] as? String else { return }
-            translationStreams[language, default: ProgressiveCaption()].update(event["text"] as? String ?? "", id: captionID)
+            guard let translationRevision = event["revision"] as? Int,
+                  let language = event["language"] as? String else { return }
+            let eventCaptionID = event["caption_id"] as? String ?? captionID
+            guard eventCaptionID == captionID else { return }
+            let reconciliation = translationStreams[language, default: RevisableCaption()].update(
+                event["text"] as? String ?? "", id: eventCaptionID, generation: translationRevision,
+                final: event["final"] as? Bool ?? false
+            )
+            if let reconciliation {
+                translationRetentions[language, default: CaptionRetentionBuffer()].reconcile(reconciliation)
+                let tokens = preferences.effectiveCaptionFlow == .sentence
+                    ? reconciliation.visibleTokens
+                    : translationRetentions[language, default: CaptionRetentionBuffer()].tokens(
+                        mode: preferences.effectiveCaptionFlow,
+                        wordLimit: preferences.effectiveCaptionWordLimit,
+                        timeLimit: preferences.effectiveCaptionTimeLimit
+                    )
+                translationTokens[language] = tokens
+                translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             playPendingWords()
             cachedTokens = event["cached_tokens"] as? Int ?? 0
         case "error": fail(event["message"] as? String ?? "Local inference failed.")
@@ -244,7 +262,9 @@ final class AppState: ObservableObject {
         let id = UUID().uuidString
         originalStream.update("A little more understanding, one sentence at a time.", id: id)
         let samples = ["English": "A little more understanding, one sentence at a time.", "French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]
-        for (language, text) in samples { translationStreams[language, default: ProgressiveCaption()].update(text, id: id) }
+        for (language, text) in samples {
+            _ = translationStreams[language, default: RevisableCaption()].update(text, id: id, generation: 0, final: true)
+        }
         playPendingWords()
         phase = "Style preview · sample text"
     }

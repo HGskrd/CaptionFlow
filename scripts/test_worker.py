@@ -2,6 +2,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import threading
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'Sources/CaptionFlow/Resources/worker'))
 from caption_core import cache_reuse, latest_caption, visible_words
@@ -58,5 +59,31 @@ class CaptionsTest(unittest.TestCase):
                 model.mkdir()
                 (model / "config.json").write_text(json.dumps(config))
                 self.assertEqual(speech_engine(model), expected)
+
+    def test_translation_queue_coalesces_partial_revisions_but_keeps_final(self):
+        from worker import TranslationDispatcher
+
+        class Translator:
+            def __init__(self):
+                self.calls = []
+                self.started = threading.Event()
+                self.release = threading.Event()
+
+            def translate(self, text, language, source_language, revision, caption_id):
+                self.calls.append((text, revision, caption_id))
+                if revision == 1:
+                    self.started.set()
+                    self.release.wait(timeout=2)
+
+        translator = Translator()
+        queue = TranslationDispatcher("unused", ["English"], translator_factory=lambda _: translator)
+        queue.submit(7, "first", "fr", 1, False)
+        self.assertTrue(translator.started.wait(timeout=2))
+        queue.submit(7, "second", "fr", 2, False)
+        queue.submit(7, "third", "fr", 3, False)
+        queue.submit(7, "final", "fr", 4, True)
+        translator.release.set()
+        queue.finish()
+        self.assertEqual(translator.calls, [("first", 1, "7"), ("final", 4, "7")])
 
 if __name__ == '__main__': unittest.main()

@@ -42,6 +42,21 @@ final class CaptionRetentionBufferTests: XCTestCase {
         XCTAssertEqual(cjk.text(mode: .words, wordLimit: 18, timeLimit: 6), "世界。你好")
     }
 
+    func testTranslationRevisionReplacesChangedWordsWithoutDuplicatingCaption() {
+        var buffer = CaptionRetentionBuffer()
+        buffer.merge(step(0, "Before. "))
+        buffer.merge(step(1, "La "))
+        buffer.merge(step(2, "chaîne"))
+        buffer.reconcile(CaptionRevision(
+            previousTokenIDs: [1, 2],
+            visibleTokens: [CaptionToken(id: 3, text: "The "), CaptionToken(id: 2, text: "chain")],
+            startsCaption: false
+        ))
+        let tokens = buffer.tokens(mode: .words, wordLimit: 20, timeLimit: 6)
+        XCTAssertEqual(tokens.map(\.text).joined(), "Before. The chain")
+        XCTAssertEqual(tokens.map(\.id), [0, 3, 2])
+    }
+
     private func step(_ id: Int, _ text: String, startsCaption: Bool = false) -> CaptionStep {
         let token = CaptionToken(id: id, text: text)
         return CaptionStep(fullText: text.trimmingCharacters(in: .whitespaces), appendedToken: token, visibleTokens: [token], startsCaption: startsCaption)

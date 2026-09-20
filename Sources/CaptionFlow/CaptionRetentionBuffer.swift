@@ -29,6 +29,21 @@ struct CaptionRetentionBuffer {
         if entries.count > 500 { entries.removeFirst(entries.count - 500) }
     }
 
+    mutating func reconcile(_ revision: CaptionRevision, at date: Date = Date()) {
+        let insertion = entries.firstIndex { revision.previousTokenIDs.contains($0.token.id) } ?? entries.count
+        let timestamps = Dictionary(uniqueKeysWithValues: entries.map { ($0.token.id, $0.appearedAt) })
+        entries.removeAll { revision.previousTokenIDs.contains($0.token.id) }
+        let replacement = revision.visibleTokens.map { Entry(token: $0, appearedAt: timestamps[$0.id] ?? date) }
+        entries.insert(contentsOf: replacement, at: min(insertion, entries.count))
+        if revision.startsCaption, insertion > 0, !replacement.isEmpty,
+           entries[insertion - 1].token.text.last?.isWhitespace != true,
+           replacement[0].token.text.first?.isWhitespace != true,
+           !Self.isUnspacedScript(replacement[0].token.text.first) {
+            entries[insertion - 1].token.text += " "
+        }
+        if entries.count > 500 { entries.removeFirst(entries.count - 500) }
+    }
+
     private static func isUnspacedScript(_ character: Character?) -> Bool {
         guard let scalar = character?.unicodeScalars.first?.value else { return false }
         return (0x3040...0x30FF).contains(scalar) || (0x3400...0x9FFF).contains(scalar) || (0xF900...0xFAFF).contains(scalar)

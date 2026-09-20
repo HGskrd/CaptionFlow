@@ -13,6 +13,108 @@ struct CaptionStep: Equatable {
     let startsCaption: Bool
 }
 
+struct CaptionRevision: Equatable {
+    let previousTokenIDs: Set<Int>
+    let visibleTokens: [CaptionToken]
+    let startsCaption: Bool
+}
+
+/// Streams the first translation word by word, then holds later generations
+/// until they are complete so a revised translation can replace its changed
+/// words without briefly collapsing back to a one-word prefix.
+struct RevisableCaption {
+    private(set) var displayTokens: [CaptionToken] = []
+    private var hypothesis: [String] = []
+    private var consumed = 0
+    private var captionID = ""
+    private var generation = -1
+    private var nextTokenID = 0
+
+    var hasPending: Bool { consumed < hypothesis.count }
+    var text: String { displayTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines) }
+
+    mutating func update(_ text: String, id: String, generation nextGeneration: Int, final: Bool) -> CaptionRevision? {
+        let incoming = ProgressiveCaption.words(text)
+        guard !incoming.isEmpty else { return nil }
+        if id != captionID {
+            captionID = id
+            generation = nextGeneration
+            hypothesis = incoming
+            consumed = 0
+            displayTokens.removeAll()
+            return nil
+        }
+        if nextGeneration == generation {
+            hypothesis = incoming
+            consumed = min(consumed, hypothesis.count)
+            return nil
+        }
+        guard nextGeneration > generation else { return nil }
+        // A model restart begins again at the first token. Keep the readable
+        // prior result until the replacement is complete.
+        guard final else { return nil }
+        generation = nextGeneration
+        hypothesis = incoming
+        consumed = incoming.count
+        return reconcile(with: incoming)
+    }
+
+    mutating func advanceStep() -> CaptionStep? {
+        guard hasPending else { return nil }
+        let startsCaption = displayTokens.isEmpty
+        if !displayTokens.isEmpty, consumed > 0,
+           hypothesis[consumed - 1].last?.isWhitespace == true,
+           displayTokens[displayTokens.count - 1].text.last?.isWhitespace != true {
+            displayTokens[displayTokens.count - 1].text += " "
+        }
+        let token = CaptionToken(id: nextTokenID, text: hypothesis[consumed])
+        nextTokenID += 1
+        displayTokens.append(token)
+        consumed += 1
+        return CaptionStep(fullText: text, appendedToken: token, visibleTokens: displayTokens, startsCaption: startsCaption)
+    }
+
+    private mutating func reconcile(with incoming: [String]) -> CaptionRevision {
+        let previous = displayTokens
+        let oldKeys = previous.map { Self.key($0.text) }
+        let newKeys = incoming.map(Self.key)
+        let matches = Self.longestCommonSubsequence(oldKeys, newKeys)
+        var idsByNewIndex: [Int: Int] = [:]
+        for (oldIndex, newIndex) in matches { idsByNewIndex[newIndex] = previous[oldIndex].id }
+        var revised: [CaptionToken] = []
+        for (index, word) in incoming.enumerated() {
+            let id: Int
+            if let existing = idsByNewIndex[index] { id = existing }
+            else { id = nextTokenID; nextTokenID += 1 }
+            revised.append(CaptionToken(id: id, text: word))
+        }
+        displayTokens = revised
+        return CaptionRevision(previousTokenIDs: Set(previous.map(\.id)), visibleTokens: revised, startsCaption: false)
+    }
+
+    private static func key(_ word: String) -> String {
+        word.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+            .trimmingCharacters(in: .whitespacesAndNewlines.union(.punctuationCharacters))
+    }
+
+    private static func longestCommonSubsequence(_ old: [String], _ new: [String]) -> [(Int, Int)] {
+        guard !old.isEmpty, !new.isEmpty else { return [] }
+        var lengths = Array(repeating: Array(repeating: 0, count: new.count + 1), count: old.count + 1)
+        for i in stride(from: old.count - 1, through: 0, by: -1) {
+            for j in stride(from: new.count - 1, through: 0, by: -1) {
+                lengths[i][j] = old[i] == new[j] ? lengths[i + 1][j + 1] + 1 : max(lengths[i + 1][j], lengths[i][j + 1])
+            }
+        }
+        var matches: [(Int, Int)] = [], i = 0, j = 0
+        while i < old.count, j < new.count {
+            if old[i] == new[j] { matches.append((i, j)); i += 1; j += 1 }
+            else if lengths[i + 1][j] >= lengths[i][j + 1] { i += 1 }
+            else { j += 1 }
+        }
+        return matches
+    }
+}
+
 /// Freezes words once read; recognition may revise only the unpublished suffix.
 struct ProgressiveCaption {
     private(set) var visible: [String] = []

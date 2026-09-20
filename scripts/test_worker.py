@@ -54,19 +54,22 @@ class CaptionsTest(unittest.TestCase):
         self.assertLess(inbox.size, 192000)
 
     def test_speech_engine_detection(self):
-        from worker import speech_engine
+        from worker import qwen_language, speech_engine
         with tempfile.TemporaryDirectory() as directory:
             root = pathlib.Path(directory)
             cases = [
                 ({"n_mels": 80, "n_audio_ctx": 1500}, "whisper"),
                 ({"target": "nemo.collections.asr.models.EncDecRNNTBPEModel"}, "parakeet"),
                 ({"model_type": "voxtral_realtime"}, "voxtral_realtime"),
+                ({"model_type": "qwen3_asr"}, "qwen3_asr"),
             ]
             for index, (config, expected) in enumerate(cases):
                 model = root / str(index)
                 model.mkdir()
                 (model / "config.json").write_text(json.dumps(config))
                 self.assertEqual(speech_engine(model), expected)
+            self.assertIsNone(qwen_language("auto"))
+            self.assertEqual(qwen_language("fr"), "French")
 
     def test_translation_queue_coalesces_partial_revisions_but_keeps_final(self):
         from worker import TranslationDispatcher

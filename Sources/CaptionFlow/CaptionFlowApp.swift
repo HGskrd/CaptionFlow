@@ -283,10 +283,11 @@ struct InspectorView: View {
         Picker("Speech", selection: $state.preferences.whisperModel) {
             Text("Whisper Small").tag("mlx-community/whisper-small-mlx")
             Text("Parakeet TDT 0.6B v3").tag("mlx-community/parakeet-tdt-0.6b-v3")
+            Text("Qwen3-ASR · 1.7B · 4-bit").tag(Preferences.qwen3ASRSpeechModel)
             Text("Voxtral Realtime 4B · 4-bit").tag("mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit")
             ForEach(state.models.filter { $0.kind == .speech }) { Text("Local · \($0.name)").tag($0.path) }
             let selection = state.preferences.whisperModel
-            if !["mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
+            if !["mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", Preferences.qwen3ASRSpeechModel, "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }

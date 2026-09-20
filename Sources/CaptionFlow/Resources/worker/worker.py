@@ -78,6 +78,19 @@ def translation_messages(model_type, text, language):
     ]
 
 
+LANGUAGE_NAMES = {
+    "en": "English", "fr": "French", "es": "Spanish", "de": "German",
+    "it": "Italian", "pt": "Portuguese", "nl": "Dutch", "pl": "Polish",
+    "ru": "Russian", "uk": "Ukrainian", "ar": "Arabic", "hi": "Hindi",
+    "zh": "Chinese", "ja": "Japanese", "ko": "Korean",
+}
+
+
+def qwen_language(value):
+    """Convert CaptionFlow's locale code to Qwen3-ASR's language hint."""
+    return None if value == "auto" else LANGUAGE_NAMES.get(value, value)
+
+
 class AudioInbox:
     """Bounded live backlog; coalesces revisions rather than queuing every frame."""
     def __init__(self, threshold, streaming=False):
@@ -291,11 +304,13 @@ def speech_engine(model_path):
         return "whisper"
     if config.get("model_type") == "voxtral_realtime":
         return "voxtral_realtime"
+    if config.get("model_type") == "qwen3_asr":
+        return "qwen3_asr"
     target = str(config.get("target", ""))
     decoding = config.get("decoding", {})
     if "EncDecRNNT" in target or decoding.get("model_type") in {"tdt", "rnnt", "ctc"}:
         return "parakeet"
-    raise ValueError("Unsupported speech model. Choose an MLX Whisper, Parakeet, or Voxtral Realtime model.")
+    raise ValueError("Unsupported speech model. Choose an MLX Whisper, Parakeet, Qwen3-ASR, or Voxtral Realtime model.")
 
 
 def run_snapshot_speech(inbox, engine, model, model_path, source_language, publish):
@@ -318,6 +333,18 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
                         if segment.get("no_speech_prob", 0) < 0.6 and segment.get("avg_logprob", 0) > -1.0]
             text = " ".join(" ".join(reliable).split())
             language = result.get("language", source_language)
+        elif engine == "qwen3_asr":
+            result = model.generate(
+                mx.array(samples, dtype=mx.float32),
+                language=qwen_language(source_language),
+                max_tokens=512,
+                verbose=False,
+            )
+            text = " ".join(result.text.split())
+            result_language = getattr(result, "language", None)
+            if isinstance(result_language, list):
+                result_language = next((item for item in reversed(result_language) if item), None)
+            language = result_language or source_language
         else:
             result = model.generate(mx.array(samples, dtype=mx.float32))
             text = " ".join(result.text.split())

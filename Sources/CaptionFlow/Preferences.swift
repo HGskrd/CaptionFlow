@@ -18,6 +18,7 @@ enum CaptionFlowMode: String, Codable, CaseIterable {
     case time = "Time"
 }
 struct Preferences: Codable {
+    static let qwen3ASRSpeechModel = "mlx-community/Qwen3-ASR-1.7B-4bit"
     static let qwen25TranslationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     static let qwen35TranslationModel = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
     static let qwen35TwoBTranslationModel = "mlx-community/Qwen3.5-2B-MLX-4bit"
@@ -61,7 +62,7 @@ struct ScanResult: Sendable { var models: [LocalModel]; var warnings: [String] }
 enum ModelDiscovery {
     static func isSpeechModel(config: [String: Any]) -> Bool {
         if config["n_mels"] != nil && config["n_audio_ctx"] != nil { return true }
-        if (config["model_type"] as? String) == "voxtral_realtime" { return true }
+        if ["voxtral_realtime", "qwen3_asr"].contains(config["model_type"] as? String ?? "") { return true }
         if let target = config["target"] as? String, target.localizedCaseInsensitiveContains("EncDecRNNT") { return true }
         if let decoding = config["decoding"] as? [String: Any],
            ["tdt", "rnnt", "ctc"].contains(decoding["model_type"] as? String ?? ""),

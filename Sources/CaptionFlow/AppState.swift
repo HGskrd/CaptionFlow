@@ -46,6 +46,8 @@ final class AppState: ObservableObject {
     private var translationStreams: [String: RevisableCaption] = [:]
     private var originalRetention = CaptionRetentionBuffer()
     private var translationRetentions: [String: CaptionRetentionBuffer] = [:]
+    private var originalPacer = CaptionPacer()
+    private var translationPacers: [String: CaptionPacer] = [:]
     private var playbackTask: Task<Void, Never>?
     private var expirationTask: Task<Void, Never>?
     var active: Bool { busy || listening }
@@ -142,8 +144,11 @@ final class AppState: ObservableObject {
             let next = event["revision"] as? Int ?? 0
             guard next >= revision else { return }
             revision = next
-            captionID = event["caption_id"] as? String ?? "utterance"
+            let incomingCaptionID = event["caption_id"] as? String ?? "utterance"
+            if incomingCaptionID != captionID { originalPacer.reset() }
+            captionID = incomingCaptionID
             originalStream.update(event["text"] as? String ?? "", id: captionID)
+            originalPacer.observe(pendingWords: originalStream.pendingCount)
             playPendingWords()
             detectedLanguage = (event["language"] as? String ?? "").uppercased()
             latency = event["latency"] as? Double ?? 0
@@ -152,10 +157,12 @@ final class AppState: ObservableObject {
                   let language = event["language"] as? String else { return }
             let eventCaptionID = event["caption_id"] as? String ?? captionID
             guard eventCaptionID == captionID else { return }
+            if translationStreams[language] == nil { translationPacers[language] = CaptionPacer() }
             let reconciliation = translationStreams[language, default: RevisableCaption()].update(
                 event["text"] as? String ?? "", id: eventCaptionID, generation: translationRevision,
                 final: event["final"] as? Bool ?? false
             )
+            translationPacers[language]?.observe(pendingWords: translationStreams[language]?.pendingCount ?? 0)
             if let reconciliation {
                 translationRetentions[language, default: CaptionRetentionBuffer()].reconcile(reconciliation)
                 let tokens = preferences.effectiveCaptionFlow == .sentence
@@ -179,6 +186,7 @@ final class AppState: ObservableObject {
         expirationTask?.cancel(); expirationTask = nil
         originalStream = ProgressiveCaption(); translationStreams = [:]; captionID = ""
         originalRetention = CaptionRetentionBuffer(); translationRetentions = [:]
+        originalPacer.reset(); translationPacers = [:]
     }
     private func playPendingWords() {
         guard playbackTask == nil else { return }
@@ -201,7 +209,13 @@ final class AppState: ObservableObject {
                 guard self.originalStream.hasPending || self.translationStreams.values.contains(where: { $0.hasPending }) else {
                     self.playbackTask = nil; return
                 }
-                do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                var delays: [Double] = []
+                if self.originalStream.hasPending { delays.append(self.originalPacer.milliseconds) }
+                for language in self.translationStreams.keys where self.translationStreams[language]?.hasPending == true {
+                    delays.append(self.translationPacers[language]?.milliseconds ?? 180)
+                }
+                let delay = Int((delays.max() ?? 180).rounded())
+                do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             }
         }
     }

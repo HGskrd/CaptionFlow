@@ -19,6 +19,27 @@ struct CaptionRevision: Equatable {
     let startsCaption: Bool
 }
 
+/// Turns irregular model batches into a steady subtitle cadence. The target
+/// follows recent delivery timing, while damping and hard bounds prevent a
+/// slow decode from becoming a burst followed by a long blank pause.
+struct CaptionPacer {
+    private(set) var milliseconds = 180.0
+    private var lastDelivery: Date?
+
+    mutating func observe(pendingWords: Int, at now: Date = Date()) {
+        defer { lastDelivery = now }
+        guard pendingWords > 0, let lastDelivery else { return }
+        let deliveryGap = min(2.4, max(0.4, now.timeIntervalSince(lastDelivery)))
+        let target = min(240.0, max(120.0, deliveryGap * 1_000 / Double(pendingWords)))
+        milliseconds = milliseconds * 0.75 + target * 0.25
+    }
+
+    mutating func reset() {
+        milliseconds = 180.0
+        lastDelivery = nil
+    }
+}
+
 /// Streams the first translation word by word, then holds later generations
 /// until they are complete so a revised translation can replace its changed
 /// words without briefly collapsing back to a one-word prefix.
@@ -31,6 +52,7 @@ struct RevisableCaption {
     private var nextTokenID = 0
 
     var hasPending: Bool { consumed < hypothesis.count }
+    var pendingCount: Int { max(0, hypothesis.count - consumed) }
     var text: String { displayTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines) }
 
     mutating func update(_ text: String, id: String, generation nextGeneration: Int, final: Bool) -> CaptionRevision? {
@@ -125,6 +147,7 @@ struct ProgressiveCaption {
     private var replaceOnNextWord = false
     private var nextTokenID = 0
     var hasPending: Bool { consumed < hypothesis.count }
+    var pendingCount: Int { max(0, hypothesis.count - consumed) }
     var text: String { visible.joined().trimmingCharacters(in: .whitespacesAndNewlines) }
     var displayTokens: [CaptionToken] { zip(visibleIDs, visible).map { CaptionToken(id: $0.0, text: $0.1) } }
 

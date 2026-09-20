@@ -28,6 +28,14 @@ class CaptionsTest(unittest.TestCase):
         self.assertEqual(visible_words('Bonjour le monde', final=True), 'Bonjour le monde')
         self.assertEqual(visible_words('你好'), '你好')
 
+    def test_hy_mt_uses_its_documented_user_only_prompt(self):
+        from worker import translation_messages
+        messages = translation_messages("hunyuan_v1_dense", "Bonjour", "English")
+        self.assertEqual([message["role"] for message in messages], ["user"])
+        self.assertIn("Translate the following text into English", messages[0]["content"])
+        self.assertTrue(messages[0]["content"].endswith("\n\nBonjour"))
+        self.assertEqual([message["role"] for message in translation_messages("qwen2", "Bonjour", "English")], ["system", "user"])
+
     def test_audio_queue_coalesces_and_closes_utterances(self):
         import numpy as np
         from worker import AudioInbox

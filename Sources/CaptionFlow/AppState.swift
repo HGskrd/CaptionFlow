@@ -56,6 +56,9 @@ final class AppState: ObservableObject {
         return "Whisper Small · multilingual · balanced"
     }
     var translationModelNote: String {
+        if preferences.translationModel == Preferences.hyMT2TranslationModel {
+            return "Hy-MT2 · about 1.02 GB · translation-specific · 33 languages"
+        }
         if preferences.translationModel == Preferences.qwen35TwoBTranslationModel {
             return "Qwen 3.5 · about 1.7 GB · larger model · partial revisions decode fresh"
         }

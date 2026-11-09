@@ -29,11 +29,28 @@ struct CaptionRetentionBuffer {
         if entries.count > 500 { entries.removeFirst(entries.count - 500) }
     }
 
-    mutating func reconcile(_ revision: CaptionRevision, at date: Date = Date()) {
+    mutating func reconcile(_ revision: CaptionRevision, at date: Date = Date(), preservingWindow: Bool = false) {
         let insertion = entries.firstIndex { revision.previousTokenIDs.contains($0.token.id) } ?? entries.count
         let timestamps = Dictionary(uniqueKeysWithValues: entries.map { ($0.token.id, $0.appearedAt) })
+        var tokens = revision.visibleTokens
+        if preservingWindow {
+            // Don't bring expired words or a paged-out prefix back on screen
+            // when a delayed decoder corrects the whole utterance.
+            guard entries.contains(where: { revision.previousTokenIDs.contains($0.token.id) }) else { return }
+            if revision.firstPreviousTokenID.flatMap({ timestamps[$0] }) == nil {
+                if let start = tokens.firstIndex(where: { timestamps[$0.id] != nil }) {
+                    tokens = Array(tokens[start...])
+                } else { tokens = [] }
+            }
+        }
         entries.removeAll { revision.previousTokenIDs.contains($0.token.id) }
-        let replacement = revision.visibleTokens.map { Entry(token: $0, appearedAt: timestamps[$0.id] ?? date) }
+        let replacement = tokens.enumerated().map { index, token in
+            let neighbor = preservingWindow
+                ? tokens.prefix(index).reversed().compactMap { timestamps[$0.id] }.first
+                    ?? tokens.dropFirst(index + 1).compactMap { timestamps[$0.id] }.first
+                : nil
+            return Entry(token: token, appearedAt: timestamps[token.id] ?? neighbor ?? date)
+        }
         entries.insert(contentsOf: replacement, at: min(insertion, entries.count))
         if revision.startsCaption, insertion > 0, !replacement.isEmpty,
            entries[insertion - 1].token.text.last?.isWhitespace != true,

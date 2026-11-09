@@ -1,5 +1,57 @@
 """Pure caption and cache bookkeeping, independently testable without Metal."""
 import re
+import unicodedata
+
+
+VOXTRAL_DELAYS = (*range(80, 1201, 80), 2400)
+
+
+def voxtral_delays(configuration):
+    dual = configuration.get("voxtral_dual_delay", False)
+    fast = configuration.get("voxtral_delay_ms", 240 if dual else 480)
+    slow = configuration.get("voxtral_correction_delay_ms", 1200)
+    if type(fast) is not int or fast not in VOXTRAL_DELAYS:
+        raise ValueError("Voxtral delay must be a multiple of 80 ms from 80–1200, or 2400 ms.")
+    if dual and (type(slow) is not int or slow not in VOXTRAL_DELAYS or slow <= fast):
+        raise ValueError("Voxtral correction delay must be a supported delay greater than the draft delay.")
+    return (fast, slow) if dual else (fast,)
+
+
+def merge_transcripts(fast, slow, final=False):
+    """Replace the fast prefix with the slower transcript, retaining its live tail.
+
+    Semi-global word alignment permits substitutions, insertions and deletions
+    without assuming equal token counts. CJK characters are separate units.
+    Without any shared words, wait for overlap (or the authoritative final).
+    """
+    if final or not fast:
+        return slow
+    if not slow:
+        return fast
+    pattern = r"[\u3040-\u30ff\u3400-\u9fff]|[^\W_]+(?:['’][^\W_]+)*"
+    a = list(re.finditer(pattern, slow))
+    b = list(re.finditer(pattern, fast))
+    def key(match):
+        return unicodedata.normalize("NFKC", match.group()).casefold()
+    left, right = list(map(key, a)), list(map(key, b))
+    if not left or not right or not set(left).intersection(right):
+        return fast
+    costs = list(range(len(right) + 1))
+    for i, word in enumerate(left, 1):
+        row = [i]
+        for j, other in enumerate(right, 1):
+            row.append(min(costs[j - 1] + (word != other), costs[j] + 1, row[-1] + 1))
+        costs = row
+    boundary = min(range(len(costs)), key=lambda j: (
+        costs[j], not (j > 0 and right[j - 1] == left[-1]), abs(j - len(left))
+    ))
+    if boundary >= len(b):
+        return slow
+    tail = fast[b[boundary].start():]
+    # Preserve the fast stream's separator, including unspaced CJK text.
+    separator = fast[b[boundary - 1].end():b[boundary].start()] if boundary else " "
+    separator = " " if any(c.isspace() for c in separator) else ""
+    return slow.rstrip() + separator + tail
 
 
 def common_prefix(left, right):

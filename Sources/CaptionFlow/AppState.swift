@@ -51,6 +51,13 @@ final class AppState: ObservableObject {
     private var playbackTask: Task<Void, Never>?
     private var expirationTask: Task<Void, Never>?
     var active: Bool { busy || listening }
+    var usesVoxtral: Bool {
+        if preferences.whisperModel.localizedCaseInsensitiveContains("voxtral") { return true }
+        let configURL = URL(fileURLWithPath: preferences.whisperModel).appendingPathComponent("config.json")
+        guard let data = try? Data(contentsOf: configURL),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return config["model_type"] as? String == "voxtral_realtime"
+    }
     var speechModelNote: String {
         let model = preferences.whisperModel.lowercased()
         if model.contains("parakeet") { return "Parakeet · 0.6B · fast · 25 European languages" }
@@ -108,7 +115,10 @@ final class AppState: ObservableObject {
                 "translation_model": preferences.translationModel, "targets": preferences.displayMode == .original ? [] : preferences.targets,
                 "source_language": preferences.sourceLanguage, "allow_downloads": preferences.allowDownloads,
                 "cache_dir": WorkerBridge.support.appendingPathComponent("models").path,
-                "silence_threshold": preferences.silenceThreshold
+                "silence_threshold": preferences.silenceThreshold,
+                "voxtral_dual_delay": preferences.effectiveVoxtralDualDelay,
+                "voxtral_delay_ms": preferences.effectiveVoxtralDelayMS,
+                "voxtral_correction_delay_ms": preferences.effectiveVoxtralCorrectionDelayMS
             ])
         } catch { fail(error.localizedDescription) }
     }
@@ -147,7 +157,17 @@ final class AppState: ObservableObject {
             let incomingCaptionID = event["caption_id"] as? String ?? "utterance"
             if incomingCaptionID != captionID { originalPacer.reset() }
             captionID = incomingCaptionID
-            originalStream.update(event["text"] as? String ?? "", id: captionID)
+            if let correction = originalStream.update(event["text"] as? String ?? "", id: captionID,
+                                                      allowCorrections: event["revisable"] as? Bool ?? false) {
+                originalRetention.reconcile(correction, preservingWindow: true)
+                let tokens = preferences.effectiveCaptionFlow == .sentence
+                    ? originalStream.displayTokens
+                    : originalRetention.tokens(mode: preferences.effectiveCaptionFlow,
+                                               wordLimit: preferences.effectiveCaptionWordLimit,
+                                               timeLimit: preferences.effectiveCaptionTimeLimit)
+                originalTokens = tokens
+                original = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             originalPacer.observe(pendingWords: originalStream.pendingCount)
             playPendingWords()
             detectedLanguage = (event["language"] as? String ?? "").uppercased()

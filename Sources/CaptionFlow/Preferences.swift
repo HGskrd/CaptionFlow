@@ -38,6 +38,21 @@ struct Preferences: Codable {
     var pythonPath = "/opt/homebrew/bin/python3.11"
     var silenceThreshold = 0.008
     // Optional storage keeps preferences written by older builds decodable.
+    var voxtralDualDelay: Bool?
+    var voxtralDelayMS: Int?
+    var voxtralCorrectionDelayMS: Int?
+    static let voxtralDelays = Array(stride(from: 80, through: 1200, by: 80)) + [2400]
+    var effectiveVoxtralDualDelay: Bool { voxtralDualDelay ?? false }
+    var effectiveVoxtralDelayMS: Int {
+        let value = voxtralDelayMS ?? (effectiveVoxtralDualDelay ? 240 : 480)
+        return Self.voxtralDelays.contains(value) && (!effectiveVoxtralDualDelay || value < 2400)
+            ? value : (effectiveVoxtralDualDelay ? 240 : 480)
+    }
+    var effectiveVoxtralCorrectionDelayMS: Int {
+        let value = voxtralCorrectionDelayMS ?? 1200
+        return Self.voxtralDelays.contains(value) && value > effectiveVoxtralDelayMS
+            ? value : (Self.voxtralDelays.first { $0 > effectiveVoxtralDelayMS } ?? 2400)
+    }
     var captionFlow: CaptionFlowMode?
     var captionWordLimit: Int?
     var captionTimeLimit: Double?

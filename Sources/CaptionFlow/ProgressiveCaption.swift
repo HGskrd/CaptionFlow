@@ -17,6 +17,7 @@ struct CaptionRevision: Equatable {
     let previousTokenIDs: Set<Int>
     let visibleTokens: [CaptionToken]
     let startsCaption: Bool
+    var firstPreviousTokenID: Int? = nil
 }
 
 /// Turns irregular model batches into a steady subtitle cadence. The target
@@ -137,7 +138,7 @@ struct RevisableCaption {
     }
 }
 
-/// Freezes words once read; recognition may revise only the unpublished suffix.
+/// Freezes read words by default; dual-delay recognition can reconcile them.
 struct ProgressiveCaption {
     private(set) var visible: [String] = []
     private var visibleIDs: [Int] = []
@@ -146,29 +147,78 @@ struct ProgressiveCaption {
     private var captionID = ""
     private var replaceOnNextWord = false
     private var nextTokenID = 0
+    private var readTokens: [CaptionToken] = []
     var hasPending: Bool { consumed < hypothesis.count }
     var pendingCount: Int { max(0, hypothesis.count - consumed) }
     var text: String { visible.joined().trimmingCharacters(in: .whitespacesAndNewlines) }
     var displayTokens: [CaptionToken] { zip(visibleIDs, visible).map { CaptionToken(id: $0.0, text: $0.1) } }
 
-    mutating func update(_ text: String, id: String) {
+    @discardableResult
+    mutating func update(_ text: String, id: String, allowCorrections: Bool = false) -> CaptionRevision? {
         let incoming = Self.words(text)
-        guard !incoming.isEmpty else { return }
+        guard !incoming.isEmpty else { return nil }
         if id != captionID {
             captionID = id
             hypothesis = incoming
             consumed = 0
+            readTokens = []
             replaceOnNextWord = true
         } else {
+            if allowCorrections {
+                return correct(with: incoming)
+            }
             // A new generation streams the same sentence again from its start.
             // Keep our read boundary until that stream catches up.
             if incoming.count < consumed {
                 hypothesis = Array(hypothesis.prefix(consumed))
-                return
+                return nil
             }
             consumed = Self.mapBoundary(from: hypothesis, to: incoming, consumed: consumed)
             hypothesis = incoming
         }
+        return nil
+    }
+
+    private mutating func correct(with incoming: [String]) -> CaptionRevision? {
+        let previous = readTokens
+        let steps = Self.alignment(from: hypothesis, to: incoming)
+        var oldIndex = 0, newIndex = 0
+        var revised: [CaptionToken] = []
+        // Only reconcile the part already read. New words remain paced, even
+        // when the slow decoder delivers a correction and an extension together.
+        for step in steps {
+            guard oldIndex < consumed else { break }
+            if step.1 > 0 {
+                let id: Int
+                if step.0 > 0, oldIndex < previous.count {
+                    id = previous[oldIndex].id
+                } else {
+                    id = nextTokenID; nextTokenID += 1
+                }
+                revised.append(CaptionToken(id: id, text: incoming[newIndex]))
+            }
+            oldIndex += step.0; newIndex += step.1
+        }
+        consumed = newIndex
+        hypothesis = incoming
+        readTokens = revised
+        guard !previous.isEmpty else { return nil }
+        // Rebuild only the current sentence, allowing corrected punctuation to
+        // move its boundary without replaying previous sentences.
+        var start = 0
+        if revised.count > 1 {
+            for i in 0..<(revised.count - 1) where Self.endsSentence(revised[i].text) { start = i + 1 }
+        }
+        visible = revised.dropFirst(start).map(\.text)
+        visibleIDs = revised.dropFirst(start).map(\.id)
+        guard previous != revised else { return nil }
+        return CaptionRevision(previousTokenIDs: Set(previous.map(\.id)), visibleTokens: revised,
+                               startsCaption: false, firstPreviousTokenID: previous.first?.id)
+    }
+
+    private static func endsSentence(_ word: String) -> Bool {
+        guard let last = word.trimmingCharacters(in: .whitespacesAndNewlines).last else { return false }
+        return ".!?。！？؟".contains(last)
     }
     mutating func advanceStep() -> CaptionStep? {
         guard hasPending else { return nil }
@@ -193,6 +243,7 @@ struct ProgressiveCaption {
         visible.append(appendedText)
         let appendedToken = CaptionToken(id: nextTokenID, text: appendedText)
         visibleIDs.append(nextTokenID)
+        readTokens.append(appendedToken)
         nextTokenID += 1
         consumed += 1
         return CaptionStep(fullText: text, appendedToken: appendedToken, visibleTokens: displayTokens, startsCaption: startsCaption)
@@ -218,6 +269,15 @@ struct ProgressiveCaption {
     /// Align hypotheses so inserted/deleted words don't cause suffix duplication.
     private static func mapBoundary(from old: [String], to new: [String], consumed: Int) -> Int {
         guard consumed > 0 else { return 0 }
+        var oldIndex = 0, newIndex = 0
+        for step in alignment(from: old, to: new) {
+            oldIndex += step.0; newIndex += step.1
+            if oldIndex >= consumed { return newIndex }
+        }
+        return newIndex
+    }
+
+    private static func alignment(from old: [String], to new: [String]) -> [(Int, Int)] {
         let a = old.map(key), b = new.map(key)
         var costs = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
         for i in 0...a.count { costs[i][0] = i }
@@ -238,11 +298,6 @@ struct ProgressiveCaption {
                 steps.append((1, 0)); i -= 1
             } else { steps.append((0, 1)); j -= 1 }
         }
-        var oldIndex = 0, newIndex = 0
-        for step in steps.reversed() {
-            oldIndex += step.0; newIndex += step.1
-            if oldIndex >= consumed { return newIndex }
-        }
-        return newIndex
+        return steps.reversed()
     }
 }

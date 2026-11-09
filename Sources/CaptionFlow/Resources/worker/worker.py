@@ -15,7 +15,8 @@ import threading
 import time
 import traceback
 
-from caption_core import cache_reuse, visible_words
+from caption_core import cache_reuse, visible_words, voxtral_delays
+from voxtral_stream import run_voxtral_stream
 
 PROTOCOL = sys.stdout
 OUTPUT_LOCK = threading.Lock()
@@ -356,42 +357,6 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
         publish(utterance, text, language, final, time.monotonic() - start)
 
 
-def run_voxtral_stream(inbox, model, source_language, publish):
-    session = None
-    utterance_text = ""
-    last_visible = ""
-    started = 0.0
-    while (job := inbox.next_stream()) is not None:
-        utterance, samples, final = job
-        if session is None:
-            session = model.create_streaming_session(transcription_delay_ms=480, max_tokens=512)
-            utterance_text = ""
-            last_visible = ""
-            started = time.monotonic()
-        session.feed(samples)
-        if final:
-            session.close()
-        attempts = 0
-        while attempts < (512 if final else 8):
-            deltas = session.step(max_decode_tokens=16)
-            if deltas:
-                utterance_text += "".join(deltas)
-                visible = visible_words(utterance_text, final=session.done)
-                if visible and visible != last_visible:
-                    last_visible = visible
-                    publish(utterance, visible, source_language, final and session.done, time.monotonic() - started)
-            if session.done or (not final and not deltas):
-                break
-            attempts += 1
-        if final:
-            if not session.done:
-                raise RuntimeError("Voxtral could not finalize the current utterance.")
-            final_text = visible_words(utterance_text, final=True)
-            if final_text and final_text != last_visible:
-                publish(utterance, final_text, source_language, True, time.monotonic() - started)
-            session = None
-
-
 def main():
     configuration = json.loads(sys.stdin.readline())
     if configuration.get("type") != "configure":
@@ -403,6 +368,7 @@ def main():
     cache_dir = configuration["cache_dir"]
     speech = resolve_model(configuration["speech_model"], cache_dir, allow)
     engine = speech_engine(speech)
+    delays = voxtral_delays(configuration) if engine == "voxtral_realtime" else None
     emit("status", message=f"Loading {engine.replace('_', ' ').title()} into MLX…")
     speech_model = None
     if engine == "whisper":
@@ -424,15 +390,15 @@ def main():
     reader.start()
     emit("ready")
     revision = 0
-    def publish(utterance, text, language, final, latency):
+    def publish(utterance, text, language, final, latency, **metadata):
         nonlocal revision
         revision += 1
         emit("source", revision=revision, caption_id=str(utterance), text=text,
-             language=language, final=final, latency=latency)
+             language=language, final=final, latency=latency, **metadata)
         if translations:
             translations.submit(utterance, text, language, revision, final)
     if engine == "voxtral_realtime":
-        run_voxtral_stream(inbox, speech_model, source_language, publish)
+        run_voxtral_stream(inbox, speech_model, source_language, publish, delays)
     else:
         run_snapshot_speech(inbox, engine, speech_model, speech, source_language, publish)
     if translations:

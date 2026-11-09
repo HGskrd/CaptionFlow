@@ -268,6 +268,7 @@ struct InspectorView: View {
             Section("Models") {
                 speechModelPicker
                 Text(state.speechModelNote).font(.caption).foregroundStyle(.secondary)
+                if state.usesVoxtral { voxtralSettings }
                 translationModelPicker
                 Text(state.translationModelNote).font(.caption).foregroundStyle(.secondary)
                 Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
@@ -277,6 +278,36 @@ struct InspectorView: View {
                 Slider(value: $state.preferences.silenceThreshold, in: 0.001...0.04).accessibilityLabel("Silence threshold")
                 Text("Lower this for quiet voices; raise it to ignore background noise.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active)
+        }
+    }
+    private var voxtralSettings: some View {
+        Group {
+            Toggle("Fast draft + corrections (experimental)", isOn: Binding(
+                get: { state.preferences.effectiveVoxtralDualDelay },
+                set: { state.preferences.voxtralDualDelay = $0 }
+            ))
+            Picker(state.preferences.effectiveVoxtralDualDelay ? "Draft delay" : "Recognition delay", selection: Binding(
+                get: { state.preferences.effectiveVoxtralDelayMS },
+                set: { state.preferences.voxtralDelayMS = $0 }
+            )) {
+                ForEach(Preferences.voxtralDelays.filter { !state.preferences.effectiveVoxtralDualDelay || $0 < 2400 }, id: \.self) {
+                    Text("\($0) ms").tag($0)
+                }
+            }
+            if state.preferences.effectiveVoxtralDualDelay {
+                Picker("Correction delay", selection: Binding(
+                    get: { state.preferences.effectiveVoxtralCorrectionDelayMS },
+                    set: { state.preferences.voxtralCorrectionDelayMS = $0 }
+                )) {
+                    ForEach(Preferences.voxtralDelays.filter { $0 > state.preferences.effectiveVoxtralDelayMS }, id: \.self) {
+                        Text("\($0) ms").tag($0)
+                    }
+                }
+            }
+            Text(state.preferences.effectiveVoxtralDualDelay
+                 ? "Shows fast words, then corrects them with more audio context. Runs two local sessions and uses more compute and memory. Translation follows the revised text."
+                 : "Shorter delays respond sooner; longer delays give recognition more audio context. These are model delays; processing adds latency.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
     private var speechModelPicker: some View {

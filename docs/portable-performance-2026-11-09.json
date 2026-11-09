@@ -1,0 +1,722 @@
+{
+  "hardware": "Apple M4 Pro, 14 CPU cores / 20 GPU cores, 48 GB RAM",
+  "scope": "Synthetic French fixture; native worker protocol, not capture-to-screen. Windows not tested.",
+  "results": {
+    "metal_speech_and_translation": {
+      "status": "ok",
+      "mode": "realtime",
+      "audio_seconds": 61.63875,
+      "repetitions": 10,
+      "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+      "fixture_kind": "synthetic",
+      "quality_scope": "fixture_only",
+      "power_watts": null,
+      "gpu_utilization": null,
+      "vram_peak_bytes": null,
+      "temperature_c": null,
+      "runtime": {
+        "version": "0.3.0",
+        "requested": "metal",
+        "cuda_compiled": false,
+        "selected_device": {
+          "async": true,
+          "description": "Apple M4 Pro",
+          "events": true,
+          "index": 0,
+          "memory_free": 40200421376,
+          "memory_total": 40200896512,
+          "name": "MTL0",
+          "type": "gpu"
+        },
+        "devices": [
+          {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          {
+            "async": false,
+            "description": "Accelerate",
+            "events": false,
+            "index": 1,
+            "memory_free": 0,
+            "memory_total": 0,
+            "name": "BLAS",
+            "type": "accelerator"
+          },
+          {
+            "async": false,
+            "description": "Apple M4 Pro",
+            "events": false,
+            "index": 2,
+            "memory_free": 51539607552,
+            "memory_total": 51539607552,
+            "name": "CPU",
+            "type": "cpu"
+          }
+        ],
+        "placement": "explicit_device_requested; per_operator_offload_not_measured",
+        "warnings": []
+      },
+      "ready": {
+        "type": "ready",
+        "engine": "nemotron_native",
+        "backend": "metal",
+        "runtime_version": "nemo-speech-asr 0.3.0",
+        "streaming": true
+      },
+      "load_seconds": 0.536403624999366,
+      "elapsed_seconds": 61.71933325000009,
+      "drain_seconds": 0.07541783299984672,
+      "realtime_factor": null,
+      "first_text_seconds": 0.6258601250001448,
+      "final_lag_seconds": {
+        "count": 10,
+        "p50": 0.06721306300050855,
+        "p95": 0.12105941905069811,
+        "p99": 0.12533308381062852,
+        "max": 0.12640150000061112
+      },
+      "translation_lag_seconds": {
+        "count": 10,
+        "p50": 0.31572775050062774,
+        "p95": 0.43013926905045974,
+        "p99": 0.4835689538107636,
+        "max": 0.49692637500083947
+      },
+      "missing_final_captions": 0,
+      "missing_final_translations": 0,
+      "word_error_rate": 0.1111111111111111,
+      "revision_erasure_ratio": 0.5804195804195804,
+      "backlog_seconds": {
+        "count": 169,
+        "p50": 0.0,
+        "p95": 0.0,
+        "p99": 0.06399999999999864,
+        "max": 0.4
+      },
+      "backlog_growth_seconds_per_second": 0.0001833973793946878,
+      "worker_tree_peak_rss_bytes": 1881980928,
+      "rss_growth_bytes_per_second": -1124053.6387637616,
+      "cpu_percent": {
+        "count": 119,
+        "p50": 2.3,
+        "p95": 3.6199999999999988,
+        "p99": 4.145999999999998,
+        "max": 4.3
+      },
+      "capture_drops": null,
+      "transport_drops": 0,
+      "source_events": 169,
+      "translation_quality": null,
+      "realtime_gate": true
+    },
+    "metal_throughput": {
+      "status": "ok",
+      "mode": "throughput",
+      "audio_seconds": 6.163875,
+      "repetitions": 1,
+      "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+      "fixture_kind": "synthetic",
+      "quality_scope": "fixture_only",
+      "power_watts": null,
+      "gpu_utilization": null,
+      "vram_peak_bytes": null,
+      "temperature_c": null,
+      "runtime": {
+        "version": "0.3.0",
+        "requested": "metal",
+        "cuda_compiled": false,
+        "selected_device": {
+          "async": true,
+          "description": "Apple M4 Pro",
+          "events": true,
+          "index": 0,
+          "memory_free": 40200421376,
+          "memory_total": 40200896512,
+          "name": "MTL0",
+          "type": "gpu"
+        },
+        "devices": [
+          {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          {
+            "async": false,
+            "description": "Accelerate",
+            "events": false,
+            "index": 1,
+            "memory_free": 0,
+            "memory_total": 0,
+            "name": "BLAS",
+            "type": "accelerator"
+          },
+          {
+            "async": false,
+            "description": "Apple M4 Pro",
+            "events": false,
+            "index": 2,
+            "memory_free": 51539607552,
+            "memory_total": 51539607552,
+            "name": "CPU",
+            "type": "cpu"
+          }
+        ],
+        "placement": "explicit_device_requested; per_operator_offload_not_measured",
+        "warnings": []
+      },
+      "ready": {
+        "type": "ready",
+        "engine": "nemotron_native",
+        "backend": "metal",
+        "runtime_version": "nemo-speech-asr 0.3.0",
+        "streaming": true
+      },
+      "load_seconds": 25.808660749999945,
+      "elapsed_seconds": 1.2219247080001878,
+      "drain_seconds": 1.2195819580001626,
+      "realtime_factor": 0.19823969629497482,
+      "first_text_seconds": 0.1315704580001693,
+      "final_lag_seconds": null,
+      "translation_lag_seconds": null,
+      "missing_final_captions": 0,
+      "missing_final_translations": 0,
+      "word_error_rate": 0.1111111111111111,
+      "revision_erasure_ratio": 0.5609756097560976,
+      "backlog_seconds": {
+        "count": 13,
+        "p50": 2.4,
+        "p95": 4.959999999999999,
+        "p99": 5.152,
+        "max": 5.2
+      },
+      "backlog_growth_seconds_per_second": -14.516352967282273,
+      "worker_tree_peak_rss_bytes": 1590394880,
+      "rss_growth_bytes_per_second": 13219438.42143045,
+      "cpu_percent": {
+        "count": 2,
+        "p50": 0.75,
+        "p95": 1.4249999999999998,
+        "p99": 1.4849999999999999,
+        "max": 1.5
+      },
+      "capture_drops": null,
+      "transport_drops": 0,
+      "source_events": 13,
+      "translation_quality": null,
+      "headroom_gate": true
+    },
+    "cpu_initial": {
+      "status": "ok",
+      "mode": "realtime",
+      "audio_seconds": 61.63875,
+      "repetitions": 10,
+      "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+      "fixture_kind": "synthetic",
+      "quality_scope": "fixture_only",
+      "power_watts": null,
+      "gpu_utilization": null,
+      "vram_peak_bytes": null,
+      "temperature_c": null,
+      "runtime": {
+        "version": "0.3.0",
+        "requested": "cpu",
+        "cuda_compiled": false,
+        "selected_device": null,
+        "devices": [
+          {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          {
+            "async": false,
+            "description": "Accelerate",
+            "events": false,
+            "index": 1,
+            "memory_free": 0,
+            "memory_total": 0,
+            "name": "BLAS",
+            "type": "accelerator"
+          },
+          {
+            "async": false,
+            "description": "Apple M4 Pro",
+            "events": false,
+            "index": 2,
+            "memory_free": 51539607552,
+            "memory_total": 51539607552,
+            "name": "CPU",
+            "type": "cpu"
+          }
+        ],
+        "placement": "explicit_device_requested; per_operator_offload_not_measured",
+        "warnings": []
+      },
+      "ready": {
+        "type": "ready",
+        "engine": "nemotron_native",
+        "backend": "cpu",
+        "runtime_version": "nemo-speech-asr 0.3.0",
+        "streaming": true
+      },
+      "load_seconds": 1.5381457500006945,
+      "elapsed_seconds": 62.97599195800012,
+      "drain_seconds": 1.3330720000003566,
+      "realtime_factor": null,
+      "first_text_seconds": 0.6478163329993549,
+      "final_lag_seconds": {
+        "count": 10,
+        "p50": 1.9984746454997548,
+        "p95": 3.24082721249947,
+        "p99": 3.55555514249937,
+        "max": 3.634237124999345
+      },
+      "translation_lag_seconds": {
+        "count": 10,
+        "p50": 6.12303695799983,
+        "p95": 13.9578311121998,
+        "p99": 14.45403012243938,
+        "max": 14.578079874999275
+      },
+      "missing_final_captions": 0,
+      "missing_final_translations": 0,
+      "word_error_rate": 0.1111111111111111,
+      "revision_erasure_ratio": 0.5754716981132075,
+      "backlog_seconds": {
+        "count": 151,
+        "p50": 1.0,
+        "p95": 4.0819375,
+        "p99": 4.863875,
+        "max": 4.963875
+      },
+      "backlog_growth_seconds_per_second": 0.011351343673261674,
+      "worker_tree_peak_rss_bytes": 3406364672,
+      "rss_growth_bytes_per_second": -1195808.3060949608,
+      "cpu_percent": {
+        "count": 118,
+        "p50": 503.29999999999995,
+        "p95": 609.87,
+        "p99": 656.693,
+        "max": 660.3
+      },
+      "capture_drops": null,
+      "transport_drops": 0,
+      "source_events": 151,
+      "translation_quality": null,
+      "realtime_gate": false
+    },
+    "cpu_phrase_translation": {
+      "status": "ok",
+      "mode": "realtime",
+      "audio_seconds": 92.458125,
+      "repetitions": 15,
+      "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+      "fixture_kind": "synthetic",
+      "quality_scope": "fixture_only",
+      "power_watts": null,
+      "gpu_utilization": null,
+      "vram_peak_bytes": null,
+      "temperature_c": null,
+      "runtime": {
+        "version": "0.3.0",
+        "requested": "cpu",
+        "cuda_compiled": false,
+        "selected_device": null,
+        "devices": [
+          {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          {
+            "async": false,
+            "description": "Accelerate",
+            "events": false,
+            "index": 1,
+            "memory_free": 0,
+            "memory_total": 0,
+            "name": "BLAS",
+            "type": "accelerator"
+          },
+          {
+            "async": false,
+            "description": "Apple M4 Pro",
+            "events": false,
+            "index": 2,
+            "memory_free": 51539607552,
+            "memory_total": 51539607552,
+            "name": "CPU",
+            "type": "cpu"
+          }
+        ],
+        "placement": "explicit_device_requested; per_operator_offload_not_measured",
+        "warnings": []
+      },
+      "ready": {
+        "type": "ready",
+        "engine": "nemotron_native",
+        "backend": "cpu",
+        "runtime_version": "nemo-speech-asr 0.3.0",
+        "streaming": true
+      },
+      "load_seconds": 2.0686648749997403,
+      "elapsed_seconds": 93.0399859579993,
+      "drain_seconds": 0.5816314999992755,
+      "realtime_factor": null,
+      "first_text_seconds": 3.2198963749997347,
+      "final_lag_seconds": {
+        "count": 15,
+        "p50": 0.07936358299957647,
+        "p95": 0.1012031749003654,
+        "p99": 0.10341200137969281,
+        "max": 0.10396420799952466
+      },
+      "translation_lag_seconds": {
+        "count": 15,
+        "p50": 0.5391565409991017,
+        "p95": 0.8746221624998723,
+        "p99": 0.9344771324997418,
+        "max": 0.9494408749997092
+      },
+      "missing_final_captions": 0,
+      "missing_final_translations": 0,
+      "word_error_rate": 0.1111111111111111,
+      "revision_erasure_ratio": 0.5794392523364486,
+      "backlog_seconds": {
+        "count": 249,
+        "p50": 0.0,
+        "p95": 0.9199999999999988,
+        "p99": 2.4,
+        "max": 2.6
+      },
+      "backlog_growth_seconds_per_second": -0.005061007714960018,
+      "worker_tree_peak_rss_bytes": 3395928064,
+      "rss_growth_bytes_per_second": 299593.01829775027,
+      "cpu_percent": {
+        "count": 178,
+        "p50": 77.4,
+        "p95": 463.1250000000001,
+        "p99": 587.2789999999995,
+        "max": 680.7
+      },
+      "capture_drops": null,
+      "transport_drops": 0,
+      "source_events": 249,
+      "translation_quality": null,
+      "realtime_gate": true
+    }
+  },
+  "final_acceptance": {
+    "schema": 1,
+    "run_id": "36220ae4-cb4d-48a1-a962-bd66a5e6e5db",
+    "hardware": {
+      "os": "Darwin",
+      "os_release": "27.2.0",
+      "arch": "arm64",
+      "cpu": "Apple M4 Pro",
+      "physical_cores": 14,
+      "logical_cores": 14,
+      "ram_bytes": 51539607552,
+      "gpus": [],
+      "power_watts": null,
+      "temperature_c": null
+    },
+    "trials": [
+      {
+        "status": "ok",
+        "mode": "throughput",
+        "audio_seconds": 6.163875,
+        "repetitions": 1,
+        "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+        "fixture_kind": "synthetic",
+        "quality_scope": "fixture_only",
+        "power_watts": null,
+        "gpu_utilization": null,
+        "vram_peak_bytes": null,
+        "temperature_c": null,
+        "runtime": {
+          "version": "0.3.0",
+          "requested": "metal",
+          "cuda_compiled": false,
+          "selected_device": {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          "devices": [
+            {
+              "async": true,
+              "description": "Apple M4 Pro",
+              "events": true,
+              "index": 0,
+              "memory_free": 40200421376,
+              "memory_total": 40200896512,
+              "name": "MTL0",
+              "type": "gpu"
+            },
+            {
+              "async": false,
+              "description": "Accelerate",
+              "events": false,
+              "index": 1,
+              "memory_free": 0,
+              "memory_total": 0,
+              "name": "BLAS",
+              "type": "accelerator"
+            },
+            {
+              "async": false,
+              "description": "Apple M4 Pro",
+              "events": false,
+              "index": 2,
+              "memory_free": 51539607552,
+              "memory_total": 51539607552,
+              "name": "CPU",
+              "type": "cpu"
+            }
+          ],
+          "placement": "explicit_device_requested; per_operator_offload_not_measured",
+          "warnings": []
+        },
+        "ready": {
+          "type": "ready",
+          "engine": "nemotron_native",
+          "backend": "metal",
+          "runtime_version": "nemo-speech-asr 0.3.0",
+          "translation_gpu_layers": 33,
+          "streaming": true
+        },
+        "load_seconds": 0.7711091249984747,
+        "elapsed_seconds": 1.5462801249996119,
+        "drain_seconds": 1.5405504999998811,
+        "realtime_factor": 0.25086169414525955,
+        "first_text_seconds": 0.6501787500001228,
+        "final_lag_seconds": null,
+        "translation_lag_seconds": null,
+        "missing_final_captions": 0,
+        "missing_final_translations": 0,
+        "word_error_rate": 0.1111111111111111,
+        "revision_erasure_ratio": 0.5609756097560976,
+        "backlog_seconds": {
+          "count": 13,
+          "p50": 2.2,
+          "p95": 4.759999999999999,
+          "p99": 4.952,
+          "max": 5.0
+        },
+        "backlog_growth_seconds_per_second": -14.926071088225504,
+        "worker_tree_peak_rss_bytes": 1862041600,
+        "rss_growth_bytes_per_second": -496659079.7025705,
+        "cpu_percent": {
+          "count": 2,
+          "p50": 14.0,
+          "p95": 26.599999999999998,
+          "p99": 27.72,
+          "max": 28.0
+        },
+        "capture_drops": null,
+        "transport_drops": 0,
+        "source_events": 13,
+        "translation_quality": null,
+        "headroom_gate": true,
+        "id": "0:0:throughput",
+        "profile": {
+          "speech_backend": "nemo",
+          "native_backend": "metal",
+          "gpu": 0,
+          "nemotron_right_context": 3,
+          "source_language": "fr",
+          "targets": [
+            "English"
+          ],
+          "translation_backend": "llama",
+          "translation_model_type": "hunyuan_v1_dense",
+          "silence_threshold": 0.008,
+          "translation_partials": null,
+          "translation_threads": null,
+          "speech_model": {
+            "name": "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+            "sha256": "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1"
+          },
+          "translation_model": {
+            "name": "Hy-MT2-1.8B-Q4_K_M.gguf",
+            "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+          },
+          "worker_sha256": "4f63dec7564c3b92cb67fa76411ab4ae363255f46f4d191b6f282e4c2ee4f4ec"
+        },
+        "completed_utc": "2026-11-09T15:36:58Z"
+      },
+      {
+        "status": "ok",
+        "mode": "realtime",
+        "audio_seconds": 184.91625,
+        "repetitions": 30,
+        "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+        "fixture_kind": "synthetic",
+        "quality_scope": "fixture_only",
+        "power_watts": null,
+        "gpu_utilization": null,
+        "vram_peak_bytes": null,
+        "temperature_c": null,
+        "runtime": {
+          "version": "0.3.0",
+          "requested": "metal",
+          "cuda_compiled": false,
+          "selected_device": {
+            "async": true,
+            "description": "Apple M4 Pro",
+            "events": true,
+            "index": 0,
+            "memory_free": 40200421376,
+            "memory_total": 40200896512,
+            "name": "MTL0",
+            "type": "gpu"
+          },
+          "devices": [
+            {
+              "async": true,
+              "description": "Apple M4 Pro",
+              "events": true,
+              "index": 0,
+              "memory_free": 40200421376,
+              "memory_total": 40200896512,
+              "name": "MTL0",
+              "type": "gpu"
+            },
+            {
+              "async": false,
+              "description": "Accelerate",
+              "events": false,
+              "index": 1,
+              "memory_free": 0,
+              "memory_total": 0,
+              "name": "BLAS",
+              "type": "accelerator"
+            },
+            {
+              "async": false,
+              "description": "Apple M4 Pro",
+              "events": false,
+              "index": 2,
+              "memory_free": 51539607552,
+              "memory_total": 51539607552,
+              "name": "CPU",
+              "type": "cpu"
+            }
+          ],
+          "placement": "explicit_device_requested; per_operator_offload_not_measured",
+          "warnings": []
+        },
+        "ready": {
+          "type": "ready",
+          "engine": "nemotron_native",
+          "backend": "metal",
+          "runtime_version": "nemo-speech-asr 0.3.0",
+          "translation_gpu_layers": 33,
+          "streaming": true
+        },
+        "load_seconds": 0.7143609169997944,
+        "elapsed_seconds": 185.1734742919998,
+        "drain_seconds": 0.24087791700003436,
+        "realtime_factor": null,
+        "first_text_seconds": 0.6401458330001333,
+        "final_lag_seconds": {
+          "count": 30,
+          "p50": 0.05096604200116417,
+          "p95": 0.07566450800004527,
+          "p99": 0.09615818550104452,
+          "max": 0.10223158300141222
+        },
+        "translation_lag_seconds": {
+          "count": 30,
+          "p50": 0.2813273540004957,
+          "p95": 0.3620127499998489,
+          "p99": 0.47685208375130983,
+          "max": 0.5234325000019453
+        },
+        "missing_final_captions": 0,
+        "missing_final_translations": 0,
+        "word_error_rate": 0.1111111111111111,
+        "revision_erasure_ratio": 0.5810705973622964,
+        "backlog_seconds": {
+          "count": 509,
+          "p50": 0.0,
+          "p95": 0.0,
+          "p99": 0.0,
+          "max": 0.0
+        },
+        "backlog_growth_seconds_per_second": 0.0,
+        "worker_tree_peak_rss_bytes": 1880489984,
+        "rss_growth_bytes_per_second": -333885.51279492956,
+        "cpu_percent": {
+          "count": 351,
+          "p50": 3.4,
+          "p95": 4.5,
+          "p99": 4.75,
+          "max": 5.4
+        },
+        "capture_drops": null,
+        "transport_drops": 0,
+        "source_events": 509,
+        "translation_quality": null,
+        "realtime_gate": true,
+        "id": "0:0:realtime",
+        "profile": {
+          "speech_backend": "nemo",
+          "native_backend": "metal",
+          "gpu": 0,
+          "nemotron_right_context": 3,
+          "source_language": "fr",
+          "targets": [
+            "English"
+          ],
+          "translation_backend": "llama",
+          "translation_model_type": "hunyuan_v1_dense",
+          "silence_threshold": 0.008,
+          "translation_partials": null,
+          "translation_threads": null,
+          "speech_model": {
+            "name": "nemotron-3.5-asr-streaming-0.6b.q8_0.gguf",
+            "sha256": "3fc991d3badad7277c11030a7519832cddaf2057aafed6d4b25147e953a070b1"
+          },
+          "translation_model": {
+            "name": "Hy-MT2-1.8B-Q4_K_M.gguf",
+            "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+          },
+          "worker_sha256": "4f63dec7564c3b92cb67fa76411ab4ae363255f46f4d191b6f282e4c2ee4f4ec"
+        },
+        "completed_utc": "2026-11-09T15:49:58Z"
+      }
+    ],
+    "privacy": "No audio, transcript, hostname or serial; review diagnostics before sharing.",
+    "coverage": "Worker-protocol replay; microphone-to-display latency and translation accuracy are not measured."
+  }
+}

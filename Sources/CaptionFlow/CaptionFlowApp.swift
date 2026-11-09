@@ -51,6 +51,8 @@ struct ContentView: View {
         .ignoresSafeArea(edges: presentation.isFullScreen ? .all : [])
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                CommunityControls(support: state.community, changeConsent: state.changeNetworkConsent)
+                    .disabled(state.installing)
                 Button { presentation.toggleFullScreen() } label: { Image(systemName: "arrow.up.left.and.arrow.down.right") }
                     .help("Full screen (⌃⌘F)").accessibilityLabel("Full screen")
                 Button { withAnimation(.easeInOut(duration: 0.18)) { state.inspector.toggle() } } label: { Image(systemName: "sidebar.right") }
@@ -68,9 +70,21 @@ struct ContentView: View {
             }
             Button("OK") { state.error = nil }
         } message: { Text(state.error ?? "") }
-        .onAppear { state.scan() }
+        .onAppear { state.scan(); state.firstLaunchConsent() }
         .onChange(of: presentation.isFullScreen) { _, fullScreen in
             if fullScreen { state.fullScreenInspector = false }
+        }
+    }
+}
+struct CommunityControls: View {
+    @ObservedObject var support: CommunitySupport
+    var changeConsent: () -> Void
+    var body: some View {
+        Button("Privacy / sharing…", action: changeConsent)
+        if support.enabled, let update = support.update {
+            Button("Update to \(update["version"] as? String ?? "new version")") {
+                Task { await support.downloadUpdate() }
+            }
         }
     }
 }

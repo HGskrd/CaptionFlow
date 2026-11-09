@@ -1,0 +1,26 @@
+[Unit]
+Description=CaptionFlow opt-in reports and signed releases
+After=network-online.target
+[Service]
+User=captionflow
+Group=captionflow
+WorkingDirectory=/opt/apps/captionflow/current
+ExecStart=/usr/bin/python3 /opt/apps/captionflow/current/server.py
+Restart=on-failure
+RestartSec=3
+StateDirectory=captionflow
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=256M
+TasksMax=64
+[Install]
+WantedBy=multi-user.target

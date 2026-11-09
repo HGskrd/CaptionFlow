@@ -4,6 +4,7 @@ import CoreGraphics
 
 @MainActor
 final class AppState: ObservableObject {
+    let community = CommunitySupport()
     @Published var preferences = Preferences.load() {
         didSet {
             preferences.save()
@@ -80,6 +81,10 @@ final class AppState: ObservableObject {
 
     func install() {
         guard !installing else { return }
+        guard community.enabled else {
+            error = "Local-only mode disables runtime and model downloads. Supply an offline runtime, or enable online participation under Privacy / sharing."
+            return
+        }
         installing = true; error = nil; phase = "Setting up local inference…"
         Task {
             do {
@@ -113,7 +118,7 @@ final class AppState: ObservableObject {
             try bridge.start(configuration: [
                 "type": "configure", "speech_model": preferences.whisperModel,
                 "translation_model": preferences.translationModel, "targets": preferences.displayMode == .original ? [] : preferences.targets,
-                "source_language": preferences.sourceLanguage, "allow_downloads": preferences.allowDownloads,
+                "source_language": preferences.sourceLanguage, "allow_downloads": preferences.allowDownloads && community.enabled,
                 "cache_dir": WorkerBridge.support.appendingPathComponent("models").path,
                 "silence_threshold": preferences.silenceThreshold,
                 "voxtral_dual_delay": preferences.effectiveVoxtralDualDelay,
@@ -284,7 +289,33 @@ final class AppState: ObservableObject {
             self?.expirationTask = nil
         }
     }
-    private func fail(_ message: String) { stop(); error = message; phase = "Needs attention" }
+    private func fail(_ message: String) {
+        stop(); error = message; phase = "Needs attention"
+        Task { await community.diagnostic("session_failed", error: message) }
+    }
+    func firstLaunchConsent() {
+        if !community.hasChoice { changeNetworkConsent() }
+        else if community.enabled { Task { await community.sync() } }
+    }
+    func changeNetworkConsent() {
+        guard !installing else { return }
+        let alert = NSAlert()
+        if community.enabled {
+            alert.messageText = "Disable online participation?"
+            alert.informativeText = "This stops listening, disables downloads, uploads and update checks, and requests deletion of this installation's uploaded reports."
+            alert.addButton(withTitle: "Keep enabled"); alert.addButton(withTitle: "Disable and delete")
+            if alert.runModal() == .alertSecondButtonReturn {
+                stop()
+                Task { await community.revoke(); phase = "Local-only mode" }
+            }
+        } else {
+            alert.messageText = "Share performance data?"
+            alert.informativeText = "Yes enables model downloads, sends hardware specifications and error fingerprints to Ishan's Hetzner service, and checks for signed updates. Audio, captions and translations are never uploaded. Reports expire after 30 days. No keeps all internet access disabled; supply runtime and model files offline. You can change this choice later."
+            alert.addButton(withTitle: "No, stay local"); alert.addButton(withTitle: "Yes, participate")
+            community.choose(alert.runModal() == .alertSecondButtonReturn)
+            phase = community.enabled ? "Online participation enabled" : "Local-only mode"
+        }
+    }
     func stop() {
         resetPlayback()
         session = UUID(); captureTask?.cancel(); captureTask = nil

@@ -104,3 +104,11 @@ On a new development Mac, the one-time identity creation requires the owner's ex
 After migrating from the earlier ad-hoc build, the owner must refresh the old Screen & System Audio Recording permission once: quit CaptionFlow, remove its stale entry, add the current `dist/CaptionFlow.app`, enable it, and reopen the app. Subsequent builds signed with the same certificate should keep the same designated requirement. The app checks permission for the currently running build before starting Mac audio and explains the stale-grant case instead of reporting that the user declined.
 
 Apple reference: [Inside Code Signing: Requirements](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
+## Windows preview, benchmark lab and opt-in feedback
+
+A CUDA-free Windows x64 preview now uses native Nemotron 3.5 streaming recognition and Hy-MT2 through Vulkan, with CPU fallback. `scripts/build-windows.py` assembles an embedded-Python ZIP; `portable/app.py` provides the desktop shell, overnight benchmark controls, diagnostic export and explicit first-launch internet consent. The same portable shell can exercise Metal on Mac. Physical Windows capture and RTX 5000 Ada execution remain unverified.
+
+Both desktop shells now ask about online participation before external networking. Declining disables runtime/model downloads, feedback uploads and update checks; offline files can still be used. Opted-in clients report hardware and error fingerprints to the Hetzner service; the portable benchmark additionally submits performance metrics without audio, captions or translations. Signed update discovery is implemented; downloaded updates are installed manually after quitting.
+
+See [Windows setup, benchmark methodology, research and service operations](docs/windows-and-benchmarks.md) and [local native measurements](docs/portable-performance-2026-11-09.json). There is no established weakest supported PC yet.

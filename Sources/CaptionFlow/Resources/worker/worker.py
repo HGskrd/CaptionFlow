@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""CaptionFlow's private local MLX worker. stdin/stdout are JSON lines.
+"""CaptionFlow's private local inference worker. stdin/stdout are JSON lines.
 
 Audio is mono float32 little-endian, 16 kHz; never written to disk.
-Only model resolution can use the network, and only when explicitly enabled.
+Model downloads require opt-in; native translation uses authenticated loopback IPC.
 """
 import base64
 import collections
 import contextlib
 import json
 import os
+import signal
 from pathlib import Path
 import sys
 import threading
@@ -156,7 +157,7 @@ class AudioInbox:
         # Called with condition held. Bound duration, not the capture packet
         # count (packet sizes can vary). Never silently discard spoken audio.
         if self.queued_samples + len(samples) > 25 * 16000:
-            raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
+            raise RuntimeError("Speech recognition fell more than 25 seconds behind live audio.")
         self.stream_jobs.append((self.utterance, samples, final))
         self.queued_samples += len(samples)
         self.condition.notify()
@@ -285,7 +286,7 @@ class TranslationDispatcher:
             while len(self.jobs) > 8:
                 removable = next((i for i, job in enumerate(self.jobs) if not job[4]), None)
                 if removable is None:
-                    break
+                    raise RuntimeError("Translation cannot keep up: eight completed captions are pending. Reduce translation languages or use a faster profile.")
                 del self.jobs[removable]
             self.condition.notify()
 
@@ -399,12 +400,18 @@ def main():
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
     cache_dir = configuration["cache_dir"]
-    speech = resolve_model(configuration["speech_model"], cache_dir, allow)
-    engine = speech_engine(speech)
+    native = configuration.get("speech_backend") == "nemo"
+    speech = configuration["speech_model"] if native else resolve_model(configuration["speech_model"], cache_dir, allow)
+    engine = "nemotron_native" if native else speech_engine(speech)
     delays = voxtral_delays(configuration) if engine == "voxtral_realtime" else None
-    emit("status", message=f"Loading {engine.replace('_', ' ').title()} into MLX…")
+    emit("status", message=f"Loading {engine.replace('_', ' ').title()}…")
     speech_model = None
-    if engine == "whisper":
+    if native:
+        from nemo_stream import NemoRecognizer
+        speech_model = NemoRecognizer(configuration["native_sdk"], speech,
+                                      gpu=int(configuration.get("gpu", -1)),
+                                      right_context=int(configuration.get("nemotron_right_context", 3)))
+    elif engine == "whisper":
         import mlx.core as mx
         from mlx_whisper.transcribe import ModelHolder
         ModelHolder.get_model(speech, mx.float16)
@@ -414,26 +421,39 @@ def main():
         if engine == "voxtral_realtime":
             prepare_voxtral_model(speech_model)
     targets = list(dict.fromkeys(configuration.get("targets", [])))
-    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=engine == "voxtral_realtime")
+    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=native or engine == "voxtral_realtime")
     translations = None
     if targets:
-        translation_path = resolve_model(configuration["translation_model"], cache_dir, allow)
-        emit("status", message="Loading translation model into MLX…")
-        translations = TranslationDispatcher(translation_path, targets,
+        if configuration.get("translation_backend") == "llama":
+            from llama_translation import LlamaTranslator
+            translation_path = configuration["translation_model"]
+            factory = lambda _: LlamaTranslator(configuration, emit, translation_messages)
+        else:
+            translation_path = resolve_model(configuration["translation_model"], cache_dir, allow)
+            factory = PrefixTranslator
+        emit("status", message="Loading translation model…")
+        translations = TranslationDispatcher(translation_path, targets, translator_factory=factory,
                                              speech_backlog=lambda: inbox.queued_samples)
     source_language = configuration.get("source_language", "auto")
     reader = threading.Thread(target=inbox.read, daemon=True)
     reader.start()
-    emit("ready")
+    emit("ready", engine=engine, backend=configuration.get("native_backend", "metal"),
+         runtime_version=speech_model.version if native else "mlx",
+         translation_gpu_layers=getattr(translations.translator, "gpu_layers", None) if translations else None,
+         streaming=native or engine == "voxtral_realtime")
     revision = 0
     def publish(utterance, text, language, final, latency, **metadata):
         nonlocal revision
         revision += 1
         emit("source", revision=revision, caption_id=str(utterance), text=text,
-             language=language, final=final, latency=latency, **metadata)
-        if translations:
+             language=language, final=final, latency=latency,
+             backlog_seconds=inbox.queued_samples / 16000, **metadata)
+        if translations and (final or configuration.get("translation_partials", configuration.get("native_backend") != "cpu")):
             translations.submit(utterance, text, language, revision, final)
-    if engine == "voxtral_realtime":
+    if native:
+        from nemo_stream import run_nemo_stream
+        run_nemo_stream(inbox, speech_model, source_language, publish)
+    elif engine == "voxtral_realtime":
         run_voxtral_stream(inbox, speech_model, source_language, publish, delays)
     else:
         run_snapshot_speech(inbox, engine, speech_model, speech, source_language, publish)
@@ -446,6 +466,10 @@ def main():
 
 
 if __name__ == "__main__":
+    # Allow atexit cleanup of an owned native translation server on macOS/Linux.
+    def terminate(signum, frame):
+        raise SystemExit(128 + signum)
+    signal.signal(signal.SIGTERM, terminate)
     try:
         main()
     except BrokenPipeError:

@@ -1,0 +1,12 @@
+{
+  "python-3.14.10-embed-amd64.zip": "90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159",
+  "cffi-2.1.1-cp314-cp314-win_amd64.whl": "3222ba5d678f80a030e6afbcc33dc1ae5cb45facabb61cee2c7016b8432fde48",
+  "cryptography-46.0.3-cp311-abi3-win_amd64.whl": "a9a3008438615669153eb86b26b61e09993921ebdd75385ddd748702c5adfddb",
+  "numpy-2.3.5-cp314-cp314-win_amd64.whl": "e6a0bc88393d65807d751a614207b7129a310ca4fe76a74e5c7da5fa5671417e",
+  "psutil-7.2.2-cp37-abi3-win_amd64.whl": "eb7e81434c8d223ec4a219b5fc1c47d0417b12be7ea866e24fb5ad6e84b3d988",
+  "pycparser-3.12-py3-none-any.whl": "a076f3f489b39b43ed13563a1dafe42447445bec2e294154ec5c57fcdda4c85e",
+  "pyside6_essentials-6.12.0-cp310-abi3-win_amd64.whl": "c9a95102aa23c1f86516a30d5a9be37552d324eee7e567eb7508973f1218cb42",
+  "rapidfuzz-3.14.3-cp314-cp314-win_amd64.whl": "f3d15d8527e2b293e38ce6e437631af0708df29eafd7c9fc48210854c94472f9",
+  "shiboken6-6.12.0-cp310-abi3-win_amd64.whl": "a1906cb8116869178c64b6bab52623bbc8b4ceed7b30bfc3c9aa0f6e67f6438e",
+  "soundcard-0.4.6-py3-none-any.whl": "ab44b8c1033ac6ec49c5d618ce096dab9b60c7d7a427c92bef15856e5ebb3e09"
+}

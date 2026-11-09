@@ -1,0 +1,8 @@
+{
+  "audio": "fr-synthetic.wav",
+  "sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+  "language": "fr",
+  "kind": "synthetic",
+  "reference": "Le train part demain matin à neuf heures. Les voyageurs doivent arriver à la gare avec leurs billets.",
+  "provenance": "Generated locally with macOS Thomas voice on 2026-11-09; engineering fixture, not an accuracy corpus."
+}

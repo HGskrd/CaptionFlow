@@ -1,10 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-swift build
+CONFIGURATION="${CONFIGURATION:-release}"
+swift build -c "$CONFIGURATION"
 APP="$PWD/dist/CaptionFlow.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-BIN="$(swift build --show-bin-path)"
+BIN="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 cp "$BIN/CaptionFlow" "$APP/Contents/MacOS/CaptionFlow"
 # Put runtime resources in the standard signed bundle resource directory.
 rm -rf "$APP/CaptionFlow_CaptionFlow.bundle"

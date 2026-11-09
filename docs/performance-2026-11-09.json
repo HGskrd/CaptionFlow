@@ -1,0 +1,98 @@
+{
+  "date": "2026-11-09",
+  "hardware": {
+    "chip": "Apple M4 Pro",
+    "cpu_cores": 14,
+    "gpu_cores": 20,
+    "memory_gb": 48
+  },
+  "runtime": {
+    "mlx": "0.32.2",
+    "mlx_audio": "0.5.4",
+    "mlx_lm": "0.31.1"
+  },
+  "speech": "Voxtral-Mini-4B-Realtime-2602-4bit",
+  "translation": "Hy-MT2-1.8B-4bit",
+  "delays_ms": [
+    240,
+    1200
+  ],
+  "source": "Synthesized French speech via macOS say, 200ms PCM frames at live speed; no microphone recording",
+  "baseline_git_commit": "dae3cb9",
+  "one_minute": {
+    "baseline": {
+      "audio_seconds": 61.0,
+      "input_rate": 1,
+      "first_text_seconds": 1.277,
+      "source_events": 142,
+      "final_lag_seconds": [
+        6.957,
+        13.143,
+        18.613,
+        24.497,
+        31.405
+      ],
+      "source_drain_seconds": 30.405,
+      "translation_drain_seconds": 30.721,
+      "completed_translations": 137
+    },
+    "optimized": {
+      "audio_seconds": 61.0,
+      "input_rate": 1,
+      "first_text_seconds": 1.259,
+      "source_events": 142,
+      "final_lag_seconds": [
+        0.772,
+        0.777,
+        0.763,
+        0.785,
+        0.824
+      ],
+      "source_drain_seconds": -0.176,
+      "translation_drain_seconds": 0.273,
+      "completed_translations": 95
+    },
+    "final_transcripts_identical": true
+  },
+  "speech_only_profile": {
+    "method": "cProfile around run_voxtral_stream plus GPU synchronization; same four repetitions of macOS Samantha train fixture, then 800ms silence, all audio queued before inference; excludes model load",
+    "input_audio_seconds": 10.819,
+    "baseline_seconds": 12.35432529100035,
+    "optimized_seconds": 4.102061917000356,
+    "speedup": 3.012,
+    "limitation": "Single synthetic microprofile, not a general throughput guarantee"
+  },
+  "checks": {
+    "swift_tests": 26,
+    "python_tests": 17,
+    "packaged_dual_matches_single_reference": true,
+    "code_signature": "strict verification passed",
+    "native_launch": "CaptionFlow visible at Ready to listen; microphone not started"
+  },
+  "packaged_three_minutes": {
+    "audio_seconds": 181.0,
+    "input_rate": 1,
+    "first_text_seconds": 1.251,
+    "source_events": 432,
+    "final_lag_seconds": [
+      0.756,
+      0.794,
+      0.722,
+      0.759,
+      0.788,
+      0.776,
+      0.851,
+      0.914,
+      0.849,
+      0.746,
+      0.709,
+      0.778,
+      0.791,
+      0.762,
+      0.791
+    ],
+    "source_drain_seconds": -0.204,
+    "translation_drain_seconds": 0.169,
+    "completed_translations": 285
+  }
+}

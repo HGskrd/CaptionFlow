@@ -16,7 +16,7 @@ import time
 import traceback
 
 from caption_core import cache_reuse, visible_words, voxtral_delays
-from voxtral_stream import run_voxtral_stream
+from voxtral_stream import prepare_voxtral_model, run_voxtral_stream
 
 PROTOCOL = sys.stdout
 OUTPUT_LOCK = threading.Lock()
@@ -101,6 +101,7 @@ class AudioInbox:
         self.condition = threading.Condition()
         self.jobs = collections.deque(maxlen=3)
         self.stream_jobs = collections.deque()
+        self.queued_samples = 0
         self.streaming = streaming
         self.frames = []
         self.preroll = collections.deque(maxlen=2)
@@ -133,18 +134,15 @@ class AudioInbox:
         if self.streaming:
             chunk = self.np.concatenate(self.frames) if started else frame
             with self.condition:
-                if len(self.stream_jobs) >= 128:
-                    raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
-                self.stream_jobs.append((self.utterance, chunk, final))
-                self.condition.notify()
-        if self.since_update >= 9600 or final:
+                self.enqueue_stream(chunk, final)
+        if not self.streaming and (self.since_update >= 9600 or final):
             self.publish(final)
         if final:
             self.frames = []; self.size = 0; self.silent = 0; self.since_update = 0
             self.utterance += 1
 
     def publish(self, final):
-        if not self.frames:
+        if self.streaming or not self.frames:
             return
         samples = self.np.concatenate(self.frames)
         with self.condition:
@@ -153,6 +151,15 @@ class AudioInbox:
             self.jobs.append((self.utterance, samples, final))
             self.condition.notify()
         self.since_update = 0
+
+    def enqueue_stream(self, samples, final):
+        # Called with condition held. Bound duration, not the capture packet
+        # count (packet sizes can vary). Never silently discard spoken audio.
+        if self.queued_samples + len(samples) > 25 * 16000:
+            raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
+        self.stream_jobs.append((self.utterance, samples, final))
+        self.queued_samples += len(samples)
+        self.condition.notify()
 
     def read(self):
         try:
@@ -165,10 +172,7 @@ class AudioInbox:
             self.publish(True)
             if self.streaming and self.frames:
                 with self.condition:
-                    if len(self.stream_jobs) >= 128:
-                        raise RuntimeError("Voxtral fell more than 25 seconds behind live audio.")
-                    self.stream_jobs.append((self.utterance, self.np.empty(0, dtype=self.np.float32), True))
-                    self.condition.notify()
+                    self.enqueue_stream(self.np.empty(0, dtype=self.np.float32), True)
         except Exception as exc:
             self.error = str(exc)
         finally:
@@ -190,7 +194,18 @@ class AudioInbox:
             self.condition.wait_for(lambda: self.stream_jobs or self.closed)
             if not self.stream_jobs:
                 return None
-            return self.stream_jobs.popleft()
+            utterance, samples, final = self.stream_jobs.popleft()
+            chunks = [samples]
+            size = len(samples)
+            # Amortize encoder launches when a small backlog exists. Do not
+            # wait to fill a batch, cross utterances or lose final markers.
+            while (not final and self.stream_jobs and self.stream_jobs[0][0] == utterance
+                   and size + len(self.stream_jobs[0][1]) <= 6400):
+                _, chunk, final = self.stream_jobs.popleft()
+                chunks.append(chunk)
+                size += len(chunk)
+            self.queued_samples -= size
+            return utterance, self.np.concatenate(chunks) if len(chunks) > 1 else samples, final
 
 
 class PrefixTranslator:
@@ -241,11 +256,14 @@ class PrefixTranslator:
 
 class TranslationDispatcher:
     """Runs translation off the speech loop and keeps only useful live revisions."""
-    def __init__(self, model_path, targets, translator_factory=PrefixTranslator):
+    def __init__(self, model_path, targets, translator_factory=PrefixTranslator, partial_interval=0.6,
+                 speech_backlog=lambda: 0):
         self.model_path = model_path
         self.translator_factory = translator_factory
         self.translator = None
         self.targets = targets
+        self.partial_interval = partial_interval
+        self.speech_backlog = speech_backlog
         self.condition = threading.Condition()
         self.jobs = collections.deque()
         self.closed = False
@@ -277,12 +295,27 @@ class TranslationDispatcher:
             # on the same thread rather than handing it over from main.
             self.translator = self.translator_factory(self.model_path)
             self.ready.set()
+            next_partial = 0.0
             while True:
                 with self.condition:
                     self.condition.wait_for(lambda: self.jobs or self.closed)
                     if not self.jobs:
                         return
+                    # Both models use the same GPU. Give speech a chance to
+                    # catch up before launching another translation; pending
+                    # partials continue to coalesce during this short wait.
+                    if not self.closed and self.speech_backlog() > 3200:
+                        self.condition.wait(timeout=0.02)
+                        continue
+                    # A bounded cadence coalesces the draft/correction burst
+                    # before launching another full translation. Finals and
+                    # shutdown bypass the wait; submit() can replace the job.
+                    remaining = next_partial - time.monotonic()
+                    if remaining > 0 and not self.closed and not self.jobs[0][4]:
+                        self.condition.wait(timeout=remaining)
+                        continue
                     job = self.jobs.popleft()
+                    next_partial = time.monotonic() + self.partial_interval
                 utterance, text, language, revision, _ = job
                 for target in self.targets:
                     self.translator.translate(text, target, language, revision, str(utterance))
@@ -378,14 +411,17 @@ def main():
     else:
         from mlx_audio.stt.utils import load_model
         speech_model = load_model(speech, model_type=engine)
+        if engine == "voxtral_realtime":
+            prepare_voxtral_model(speech_model)
     targets = list(dict.fromkeys(configuration.get("targets", [])))
+    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=engine == "voxtral_realtime")
     translations = None
     if targets:
         translation_path = resolve_model(configuration["translation_model"], cache_dir, allow)
         emit("status", message="Loading translation model into MLX…")
-        translations = TranslationDispatcher(translation_path, targets)
+        translations = TranslationDispatcher(translation_path, targets,
+                                             speech_backlog=lambda: inbox.queued_samples)
     source_language = configuration.get("source_language", "auto")
-    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=engine == "voxtral_realtime")
     reader = threading.Thread(target=inbox.read, daemon=True)
     reader.start()
     emit("ready")

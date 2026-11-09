@@ -3,6 +3,7 @@ import pathlib
 import sys
 import tempfile
 import threading
+import time
 import unittest
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'Sources/CaptionFlow/Resources/worker'))
 from caption_core import cache_reuse, latest_caption, visible_words
@@ -70,6 +71,78 @@ class CaptionsTest(unittest.TestCase):
                 self.assertEqual(speech_engine(model), expected)
             self.assertIsNone(qwen_language("auto"))
             self.assertEqual(qwen_language("fr"), "French")
+
+    def test_stream_batching_preserves_pcm_and_utterance_boundaries(self):
+        import numpy as np
+        from worker import AudioInbox
+        inbox = AudioInbox(0.008, streaming=True)
+        frames = [np.full(3200, 0.1 + i / 100, dtype='<f4') for i in range(3)]
+        frames += [np.zeros(3200, dtype='<f4') for _ in range(4)]
+        frames += [np.full(3200, 0.3, dtype='<f4')]
+        for frame in frames:
+            inbox.feed(frame.tobytes())
+        self.assertFalse(inbox.jobs)  # Streaming doesn't build unused snapshots.
+        self.assertEqual(inbox.queued_samples, 25600)
+        inbox.closed = True
+        jobs = []
+        while (job := inbox.next_stream()) is not None:
+            jobs.append(job)
+        np.testing.assert_array_equal(np.concatenate([j[1] for j in jobs]), np.concatenate(frames))
+        self.assertEqual([(u, f) for u, _, f in jobs], [(0, False), (0, False), (0, False), (0, True), (1, False)])
+        self.assertEqual(inbox.queued_samples, 0)
+
+    def test_stream_backlog_is_bounded_by_duration_not_packets(self):
+        import numpy as np
+        from worker import AudioInbox
+        inbox = AudioInbox(0.008, streaming=True)
+        frame = np.full(800, 0.1, dtype='<f4').tobytes()
+        for _ in range(500):
+            inbox.feed(frame)
+        self.assertEqual(inbox.queued_samples, 400000)
+        with self.assertRaisesRegex(RuntimeError, "25 seconds"):
+            inbox.feed(frame)
+
+    def test_translation_cadence_coalesces_bursts_and_finals_bypass_wait(self):
+        from worker import TranslationDispatcher
+        called = threading.Event()
+        calls = []
+        class Translator:
+            def translate(self, text, language, source_language, revision, caption_id):
+                calls.append((revision, time.monotonic()))
+                called.set()
+        dispatcher = TranslationDispatcher("unused", ["English"],
+                                           translator_factory=lambda _: Translator(), partial_interval=60)
+        try:
+            dispatcher.submit(0, "first", "fr", 1, False)
+            self.assertTrue(called.wait(2))
+            called.clear()
+            dispatcher.submit(0, "draft", "fr", 2, False)
+            dispatcher.submit(0, "correction", "fr", 3, False)
+            self.assertFalse(called.wait(0.05))
+            dispatcher.submit(0, "final", "fr", 4, True)
+            self.assertTrue(called.wait(2))
+        finally:
+            dispatcher.finish()
+        self.assertEqual([r for r, _ in calls], [1, 4])
+
+    def test_speech_priority_defers_translation_and_shutdown_drains_finals(self):
+        from worker import TranslationDispatcher
+        calls = []
+        called = threading.Event()
+        class Translator:
+            def translate(self, text, language, source_language, revision, caption_id):
+                calls.append(revision)
+                called.set()
+        dispatcher = TranslationDispatcher("unused", ["English"],
+                                           translator_factory=lambda _: Translator(),
+                                           speech_backlog=lambda: 6400)
+        try:
+            dispatcher.submit(0, "draft", "fr", 1, False)
+            dispatcher.submit(0, "final", "fr", 2, True)
+            self.assertFalse(called.wait(0.05))
+        finally:
+            dispatcher.finish()
+        self.assertEqual(calls, [2])
 
     def test_translation_queue_coalesces_partial_revisions_but_keeps_final(self):
         from worker import TranslationDispatcher

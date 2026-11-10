@@ -52,7 +52,7 @@ class MetricsTests(unittest.TestCase):
             config = Path(d)/'config.json'; config.write_text('{}')
             fixture = ROOT/'docs/fixtures/fr-synthetic.json'; output = Path(d)/'results'
             stop = threading.Event(); calls=[]
-            def fake(*args):
+            def fake(*args, **kwargs):
                 calls.append(args[3]); stop.set()
                 return {'status':'ok','audio_seconds':1,'fixture_sha256':'test'}
             with patch.object(benchmark,'trial',side_effect=fake), patch.object(benchmark,'hardware',return_value={'cpu':'test'}):
@@ -60,7 +60,7 @@ class MetricsTests(unittest.TestCase):
                 stop.clear()
                 benchmark._run_suite([config],fixture,output,.01,1,stop,lambda _:None)
             self.assertEqual(calls,['throughput','realtime'])
-            with sqlite3.connect(output/'journal.sqlite') as conn:
+            with sqlite3.connect(next(output.glob('*/journal.sqlite'))) as conn:
                 self.assertEqual(conn.execute('SELECT count(*) FROM trials').fetchone()[0],2)
 
 
@@ -135,14 +135,102 @@ class ServiceTests(unittest.TestCase):
         with server.connection() as conn:self.assertEqual(conn.execute('SELECT count(*) FROM reports').fetchone()[0],0)
 
 
-if __name__=='__main__':unittest.main()
+
 
 class UpdateRetryTests(unittest.TestCase):
     def test_downloaded_update_remains_offered_until_installed(self):
         with tempfile.TemporaryDirectory() as d:
-            client=feedback.Feedback(d);client.consent(True);client.state['highest_release']=2
-            release={'sequence':2}
+            client=feedback.Feedback(d);client.consent(True);client.state['highest_release']=3
+            release={'sequence':3}
             with patch.object(client,'request',return_value={'payload':'mock'}),patch.object(feedback,'verify_manifest',return_value=release):
                 self.assertEqual(client.check_update(),release)
             with patch.object(client,'request',return_value={'payload':'mock'}),patch.object(feedback,'verify_manifest',return_value={'sequence':1}):
                 self.assertIsNone(client.check_update())
+
+class ResilientBenchmarkTests(unittest.TestCase):
+    def settings(self, directory, backends=('metal',)):
+        files=[]
+        for i, backend in enumerate(backends):
+            path=Path(directory)/f'config{i}.json';path.write_text(json.dumps({'native_backend':backend}));files.append(path)
+        return files, ROOT/'docs/fixtures/fr-synthetic.json', Path(directory)/'results'
+
+    def test_partial_is_saved_and_remaining_work_resumes(self):
+        with tempfile.TemporaryDirectory() as d:
+            configs, fixture, output=self.settings(d);stop=threading.Event();calls=[]
+            def first(config, fixture, duration, mode, cancelled, checkpoint):
+                calls.append((mode,duration))
+                if mode=='realtime':
+                    checkpoint({'status':'running','audio_seconds':8,'fixture_sha256':'test'})
+                    cancelled.set()
+                    return {'status':'partial','partial':True,'audio_seconds':8,'fixture_sha256':'test'}
+                return {'status':'ok','audio_seconds':6,'fixture_sha256':'test'}
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=first):
+                report=benchmark._run_suite(configs,fixture,output,trial_seconds=60,cancelled=stop,progress=lambda _:None)
+            self.assertEqual(report['trials'][-1]['status'],'partial');stop.clear()
+            def second(config, fixture, duration, mode, cancelled, checkpoint):
+                calls.append((mode,duration));cancelled.set()
+                return {'status':'ok','audio_seconds':duration,'fixture_sha256':'test'}
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=second):
+                resumed=benchmark._run_suite(configs,fixture,output,trial_seconds=60,cancelled=stop,progress=lambda _:None)
+            self.assertEqual(report['run_id'],resumed['run_id'])
+            self.assertEqual(calls,[('throughput',60),('realtime',60),('realtime',52)])
+            self.assertEqual(len(resumed['trials']),3)
+
+    def test_startup_failure_skips_other_gpu_profiles_and_tries_cpu(self):
+        with tempfile.TemporaryDirectory() as d:
+            configs, fixture, output=self.settings(d,('vulkan','vulkan','cpu'));calls=[];stop=threading.Event()
+            def fake(config,*args,**kwargs):
+                calls.append(config['native_backend'])
+                if config['native_backend']=='vulkan':
+                    return {'status':'error','failure_stage':'probe','error':'GPU unavailable','audio_seconds':0,'fixture_sha256':'test'}
+                stop.set();return {'status':'ok','audio_seconds':6,'fixture_sha256':'test'}
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=fake):
+                result=benchmark._run_suite(configs,fixture,output,cancelled=stop,progress=lambda _:None)
+            self.assertEqual(calls,['vulkan','cpu']);self.assertEqual(len(result['disabled_profiles']),2)
+
+    def test_all_fail_stops_without_retry_loop(self):
+        with tempfile.TemporaryDirectory() as d:
+            configs, fixture, output=self.settings(d)
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',return_value={'status':'error','audio_seconds':0,'fixture_sha256':'test'}) as run:
+                result=benchmark._run_suite(configs,fixture,output,progress=lambda _:None)
+                benchmark._run_suite(configs,fixture,output,progress=lambda _:None)
+            self.assertEqual(run.call_count,1);self.assertEqual(len(result['trials']),1)
+
+    def test_update_preserves_old_history_and_starts_fresh(self):
+        with tempfile.TemporaryDirectory() as d:
+            configs, fixture, output=self.settings(d);stop=threading.Event()
+            def fake(*args,**kwargs):
+                stop.set();return {'status':'ok','audio_seconds':1,'fixture_sha256':'test'}
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=fake):
+                before=benchmark._run_suite(configs,fixture,output,cancelled=stop,progress=lambda _:None);stop.clear()
+                with patch.object(benchmark.platform,'python_version',return_value='updated-runtime'):
+                    after=benchmark._run_suite(configs,fixture,output,cancelled=stop,progress=lambda _:None)
+            self.assertNotEqual(before['run_id'],after['run_id']);self.assertEqual(len(list(output.glob('*/report.json'))),2)
+
+    def test_crash_checkpoint_survives_and_profile_is_quarantined(self):
+        with tempfile.TemporaryDirectory() as d:
+            configs, fixture, output=self.settings(d)
+            def crash(*args,checkpoint,**kwargs):
+                checkpoint({'status':'running','audio_seconds':5,'fixture_sha256':'test'})
+                raise SystemExit('simulate process exit')
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=crash):
+                with self.assertRaises(SystemExit):benchmark._run_suite(configs,fixture,output,progress=lambda _:None)
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial') as run:
+                report=benchmark._run_suite(configs,fixture,output,progress=lambda _:None)
+                run.assert_not_called()
+            self.assertEqual(report['trials'][0]['status'],'interrupted')
+            self.assertEqual(report['trials'][0]['audio_seconds'],5)
+
+    def test_watchdog_and_realtime_failure(self):
+        self.assertIsNone(benchmark.health_failure(0,0,10,10,0))
+        self.assertIn('progress',benchmark.health_failure(0,0,21,10,0))
+        self.assertIn('backlog',benchmark.health_failure(0,9,10,10,11))
+        with tempfile.TemporaryDirectory() as d:
+            configs,fixture,output=self.settings(d)
+            with patch.object(benchmark,'hardware',return_value={}),patch.object(benchmark,'trial',side_effect=[
+                {'status':'ok','headroom_gate':False,'audio_seconds':6,'fixture_sha256':'test'},
+                {'status':'ok','realtime_gate':False,'audio_seconds':60,'fixture_sha256':'test'}]) as run:
+                report=benchmark._run_suite(configs,fixture,output,progress=lambda _:None)
+            self.assertEqual(run.call_count,2);self.assertTrue(report['trials'][-1]['failure_detected'])
+
+if __name__=='__main__':unittest.main()

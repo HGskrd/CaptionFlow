@@ -59,9 +59,11 @@ class Window(QMainWindow):
             label.setFont(font); label.setTextFormat(Qt.PlainText)
             label.setMargin(25); layout.addWidget(label, 1)
         bench = QHBoxLayout(); layout.addLayout(bench)
-        self.hours = QSpinBox(); self.hours.setRange(1, 48); self.hours.setValue(8); self.hours.setSuffix(" hours")
+        self.hours = QComboBox()
+        for label, budget in (("Until I stop", None), ("Quick · 5 minutes", 5/60), ("30 minutes", .5), ("Overnight · 8 hours", 8)):
+            self.hours.addItem(label, budget)
         bench.addWidget(self.hours)
-        self.benchmark = QPushButton("Run overnight benchmark"); self.benchmark.clicked.connect(self.start_benchmark); bench.addWidget(self.benchmark)
+        self.benchmark = QPushButton("Start / resume benchmark"); self.benchmark.clicked.connect(self.start_benchmark); bench.addWidget(self.benchmark)
         self.export = QPushButton("Export diagnostics / results…"); self.export.clicked.connect(self.export_bundle); bench.addWidget(self.export)
         self.privacy = QPushButton("Privacy / sharing…"); self.privacy.clicked.connect(self.change_consent); bench.addWidget(self.privacy)
         self.update = QPushButton("Update available"); self.update.clicked.connect(self.get_update); self.update.hide(); bench.addWidget(self.update)
@@ -262,35 +264,56 @@ class Window(QMainWindow):
 
     def start_benchmark(self):
         from benchmark import run_suite
-        try: config = self.configuration()
-        except Exception as exc:
-            self.status(str(exc)); return
-        # Benchmark reproducible French -> English independently of live UI selections.
-        config.update(source_language="fr", targets=["English"])
-        paths = []
-        profile_dir = self.data / "benchmark-profiles"; profile_dir.mkdir(exist_ok=True)
-        for context in (0, 3, 6):
-            for translate in (False, True):
-                profile = {**config, "nemotron_right_context": context, "targets": ["English"] if translate else []}
-                path = profile_dir / f"{config['native_backend']}-{context}-{int(translate)}.json"
-                path.write_text(json.dumps(profile, indent=2)); paths.append(str(path))
-        output = self.data / ("benchmark-" + config["native_backend"])
-        hours = self.hours.value()
-        self.status("Benchmark running. Keep this laptop awake and plugged in. Stop preserves completed trials; rerunning resumes them.")
-        def progress(message):
-            self.signals.status.emit(message)
-            if self.feedback.allowed and (output / "report.json").exists():
-                try: self.feedback.upload(json.loads((output / "report.json").read_text()))
-                except Exception as exc: self.signals.status.emit("Report upload pending: " + redact(exc))
-        self.launch(lambda: run_suite(paths, ROOT / "docs/fixtures/fr-synthetic.json", output,
-                                     hours=hours, cancelled=self.cancelled, progress=progress))
+        backend = self.backend.currentText().lower()
+        hours = self.hours.currentData()
+        self.status("Preparing benchmark automatically. Stop saves partial results; matching runs resume next time. Failed profiles are skipped.")
+        def work():
+            paths = []
+            profile_dir = self.data / "benchmark-profiles"; profile_dir.mkdir(exist_ok=True)
+            # CPU is a separately measured fallback, never disguised as a GPU result.
+            backends = [backend, "cpu"] if backend != "cpu" else ["cpu"]
+            for candidate in backends:
+                if self.cancelled.is_set(): return
+                self.signals.status.emit("Preparing " + candidate + " runtime and checking cached models…")
+                try:
+                    def setup_progress(message):
+                        if self.cancelled.is_set(): raise InterruptedError("Setup paused; downloads can resume")
+                        self.signals.status.emit(message)
+                    config = install(self.data, candidate, progress=setup_progress,
+                                     allow_network=self.feedback.allowed)
+                    (self.data / f"configuration-{candidate}.json").write_text(json.dumps(config, indent=2))
+                except Exception as exc:
+                    self.signals.status.emit(f"{candidate} setup failed: {redact(exc)}. Trying the next backend.")
+                    continue
+                for context in (3, 0, 6):
+                    for translate in (False, True):
+                        profile = {**config, "source_language": "fr", "nemotron_right_context": context,
+                                   "targets": ["English"] if translate else []}
+                        path = profile_dir / f"{candidate}-{context}-{int(translate)}.json"
+                        path.write_text(json.dumps(profile, indent=2)); paths.append(str(path))
+            if not paths:
+                raise RuntimeError("No backend could be prepared. Setup errors were saved in the diagnostic log; offline mode requires cached models and runtimes.")
+            output = self.data / ("benchmark-" + backend)
+            def progress(message):
+                self.signals.status.emit(message)
+                if self.feedback.allowed:
+                    reports = sorted(output.glob("*/report.json"), key=lambda path: path.stat().st_mtime)
+                    if reports:
+                        try: self.feedback.upload(json.loads(reports[-1].read_text()), force=False)
+                        except Exception as exc: self.signals.status.emit("Report upload pending: " + redact(exc))
+            report = run_suite(paths, ROOT / "docs/fixtures/fr-synthetic.json", output,
+                               hours=hours, trial_seconds=60, cancelled=self.cancelled, progress=progress)
+            if self.feedback.allowed:
+                try: self.feedback.upload(report)
+                except Exception as exc: self.signals.status.emit("Saved locally; report upload pending: " + redact(exc))
+        self.launch(work)
 
     def export_bundle(self):
         destination, _ = QFileDialog.getSaveFileName(self, "Export diagnostic bundle", "CaptionFlow-diagnostics.zip", "ZIP (*.zip)")
         if not destination: return
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("hardware.json", json.dumps(hardware(), indent=2))
-            for pattern in ("application*.log", "doctor-*.json", "benchmark-*/report.json"):
+            for pattern in ("application*.log", "doctor-*.json", "benchmark-*/report.json", "benchmark-*/*/report.json"):
                 for path in self.data.glob(pattern):
                     archive.writestr(str(path.relative_to(self.data)), redact(path.read_text(encoding="utf-8")))
             archive.writestr("README.txt", "Local diagnostic export. No captured audio or caption text is logged. Review hardware and error messages before sharing. No automatic upload occurs.\n")

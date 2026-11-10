@@ -14,7 +14,13 @@ CPU profiles translate completed phrases using two translation threads, leaving 
 
 ## Overnight benchmarking
 
-The app's **Run overnight benchmark** button tests right-context values 0, 3 and 6, each with speech alone and speech plus English translation. Each profile gets a short throughput replay and a ten-minute paced run. It repeats for the selected duration (default eight hours), preventing system sleep while running; stopping restores normal sleep behaviour. The wall-time budget stops starting new trials; a current trial can finish after that budget. Stop interrupts a running trial and preserves completed trials. Rerun with the same specification and results directory to resume. A changed model, code hash, fixture or hardware requires a new results directory.
+The app's **Start / resume benchmark** button prepares cached models/runtimes automatically, then tests the selected GPU backend and a separately labelled CPU fallback. **Until I stop** is the default; **Quick · 5 minutes**, **30 minutes** and **Overnight · 8 hours** are also available. Timed budgets begin after setup and fingerprinting; stopping may need a few seconds to flush/terminate inference. Each profile gets short throughput replay plus 60-second paced trials, testing right-context values 3, 0 and 6 with speech alone and English translation. Quick tests may cover only part of the matrix; the next run continues it.
+
+The app saves a text-free checkpoint every five seconds and saves the active trial on Stop. Partial trials retain their measurements but do not receive accuracy or realtime pass claims. Resume restarts the model's decoder for the remaining test time; it does not attempt to serialize GPU/KV state. App/benchmark/dependency code, Python version, model/runtime checksums, fixture, hardware and profile settings identify each history. A change automatically creates a new subdirectory, preserving prior exports. Changing only the time budget keeps the same history.
+
+Crashes, startup errors, a queue over ten seconds, or no source progress for fifteen seconds after a twenty-second startup grace are detected automatically. Failed realtime/accuracy gates also disable that profile. A failed backend probe skips its other profiles and proceeds to CPU. Failed profiles are not repeatedly retried in the same history. If all profiles fail, the run stops with saved diagnostics. An unexpected application/process exit preserves its latest checkpoint and quarantines that profile on the next launch. Normal Stop resumes the unfinished profile.
+
+The benchmark prevents system sleep while running and restores normal sleep behaviour when finished. Opted-in clients upload new completed/partial records in batches, at most once every ten minutes during a run and again on Stop. Running checkpoints remain local; report uploads never contain transcripts.
 
 The bundled French speech is synthetic. It verifies pipeline performance and catches transcription regressions on that phrase. It does **not** establish broad accent/noise accuracy, translation quality or microphone-to-screen latency. Add independently licensed, diverse fixtures with manually checked transcripts before making hardware recommendations. A fixture manifest names a mono PCM16 16 kHz WAV (up to 20 seconds), SHA-256, language, reference, kind and provenance. The harness repeats it with one second of silence. Use a matching source language in each configuration.
 
@@ -22,7 +28,7 @@ The bundled French speech is synthetic. It verifies pipeline performance and cat
 .venv-portable/bin/python portable/benchmark.py run \
   --config dist/portable-data/configuration.json \
   --fixture docs/fixtures/fr-synthetic.json \
-  --output dist/benchmarks/my-machine --hours 8 --trial-seconds 600
+  --output dist/benchmarks/my-machine --trial-seconds 60
 
 .venv-portable/bin/python portable/benchmark.py aggregate \
   results-a/report.json results-b/report.json --output capabilities.json
@@ -82,4 +88,8 @@ Only Nemotron and the existing Hy-MT2 family are integrated in this portable pre
 - Hetzner health, enrollment, submission, privacy-field rejection, self-deletion, signed manifest verification and the complete public Windows ZIP download were exercised. The first opted-in native Mac startup diagnostic was received through the production service.
 - Windows hardware execution, microphone capture, WASAPI loopback, Vulkan on RTX 5000 Ada and a complete eight-hour endurance run remain unverified. No minimum PC specification is certified.
 
-Windows preview: [download](https://h.gskrd.me/apps/captionflow/releases/CaptionFlow-Windows-x64.zip), 211,250,955 bytes, SHA-256 `a2bfcbbc2e2e44b9873c90cfb7cb3b570759f4f9069f3c10a0a41e3a313d955e`. A separate 2.03 GB offline bundle with verified model weights is available locally at `dist/CaptionFlow-Windows-x64-offline.zip`.
+Windows 0.2.1 preview: [download](https://h.gskrd.me/apps/captionflow/releases/CaptionFlow-Windows-x64-0.2.1.zip), 211,254,174 bytes, SHA-256 `e1e9daf6de871ea7a3cd3c08e609bac99b5a6af0d0b4f45d633a55b73863fb1d`. For an offline update, keep the existing `portable/data` directory, including its models and runtime files; no model redownload is required.
+
+## Stop/resume update (0.2.1)
+
+Verified with real Metal inference: Stop saved 7.36 seconds of an active test, then resume continued the same run ID for the remaining test time. A deliberately stalled subprocess was detected and terminated after about twenty seconds. Automated tests cover crash recovery, persistent failure skipping, GPU-to-CPU progression, partial checkpoints, short time budgets, update invalidation, and bounded incremental uploads. Windows execution still requires physical hardware validation.

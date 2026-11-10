@@ -12,8 +12,8 @@ import urllib.request
 from common import redact
 
 BASE_URL = "https://h.gskrd.me/apps/captionflow"
-VERSION = "0.2.0"
-RELEASE_SEQUENCE = 1
+VERSION = "0.2.1"
+RELEASE_SEQUENCE = 2
 # Release verification key is public. Signing key stays off the VPS and outside the repo.
 PUBLIC_KEY = "yTp27s/gWvh5/qBk/I6/IcszfL0oPFANbj1ffM+QDiQ="
 FORBIDDEN = {"audio", "pcm", "transcript", "text", "hostname", "serial", "username", "token",
@@ -68,14 +68,30 @@ class Feedback:
                 self.state.update(self.request("/v1/enroll", {"consent_version": 1}))
                 self.save()
 
-    def upload(self, report):
+    def upload(self, report, force=True):
         self.enroll()
+        # Long, resumable sessions can exceed a whole-report request's size/quota.
+        # Send only new terminal trial records, in bounded batches. Running
+        # checkpoints stay local until Stop, completion or crash recovery.
+        if not force and time.time() - self.state.get("last_report_upload", 0) < 600:
+            return
         report = public_report(report)
-        digest = hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()
-        if self.state.get("last_report_digest") == digest: return
-        self.request("/v1/reports", {"schema": 1, "app_version": VERSION, "report": report})
-        with self.lock:
-            self.state["last_report_digest"] = digest; self.save()
+        sent = self.state.setdefault("uploaded_trials", {})
+        pending = []
+        for trial in report.get("trials", []):
+            if trial.get("status") == "running": continue
+            identity = report["run_id"] + ":" + trial["id"]
+            digest = hashlib.sha256(json.dumps(trial, sort_keys=True).encode()).hexdigest()
+            if sent.get(identity) != digest:
+                pending.append((identity, digest, trial))
+        for offset in range(0, len(pending), 50):
+            batch = pending[offset:offset + 50]
+            self.request("/v1/reports", {"schema": 1, "app_version": VERSION,
+                         "report": {**report, "trials": [item[2] for item in batch]}})
+            with self.lock:
+                for identity, digest, _ in batch: sent[identity] = digest
+                self.state["last_report_upload"] = time.time()
+                self.save()
 
     def diagnostic(self, machine, phase, error=None):
         self.enroll()

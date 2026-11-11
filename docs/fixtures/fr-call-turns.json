@@ -1,0 +1,9 @@
+{
+  "audio": "fr-call-turns.wav",
+  "sha256": "0205a18a89c010a92d5c37a858dc071d0db5865f3c3db48e623dbca33806fd86",
+  "language": "fr",
+  "kind": "synthetic_mixed_call_turns",
+  "reference": "Le train part demain matin à neuf heures. Les voyageurs doivent arriver à la gare avec leurs billets. Bonjour, je vous entends bien. Nous pouvons commencer la réunion.",
+  "overlapping_speech": false,
+  "provenance": "Synthetic Thomas and Amélie voices, 30ms simulated speaker echo, shared CaptionAudio mixer. Not a real-room accuracy corpus."
+}

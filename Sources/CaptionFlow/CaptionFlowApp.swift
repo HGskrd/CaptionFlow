@@ -230,7 +230,7 @@ struct InspectorView: View {
                     Text("Detect automatically").tag("auto")
                     ForEach(["en", "fr", "es", "de", "it", "pt", "nl", "pl", "ru", "uk", "ar", "hi", "zh", "ja", "ko"], id: \.self) { code in Text(Locale.current.localizedString(forLanguageCode: code) ?? code).tag(code) }
                 }
-                Text(state.preferences.source == .microphone ? "Uses your Mac’s current input device." : "Captures audio playing on your Mac. macOS may request Screen & System Audio Recording access.").font(.caption).foregroundStyle(.secondary)
+                Text(state.preferences.source == .microphone ? "Uses your Mac’s current input device." : "Captures Mac audio. Microphone + Mac audio mixes both into one transcription stream with speaker echo cancellation. macOS requires Screen & System Audio Recording access.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active)
             Section("On screen") {
                 Picker("Show", selection: $state.preferences.displayMode) { ForEach(DisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }

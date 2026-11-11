@@ -5,6 +5,7 @@ Runs on macOS/Linux too; assembling Windows binaries is NOT a Windows runtime te
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -50,7 +51,11 @@ def build(output, offline_models=False):
         lock[wheel.name] = digest
         with zipfile.ZipFile(wheel) as stream: stream.extractall(packages)
     for source, target in [('portable','portable'),('Sources/CaptionFlow/Resources/worker','Sources/CaptionFlow/Resources/worker'),('docs/fixtures','docs/fixtures')]:
-        shutil.copytree(ROOT / source, staging / target, ignore=shutil.ignore_patterns('__pycache__','data','results','*.pyc'))
+        shutil.copytree(ROOT / source, staging / target, ignore=shutil.ignore_patterns('__pycache__','data','results','*.pyc','caption_audio.*'))
+    subprocess.run([sys.executable, str(ROOT/'scripts/build-audio.py'), '--cc',
+                    os.environ.get('WINDOWS_CC', 'gcc' if os.name == 'nt' else 'x86_64-w64-mingw32-gcc'),
+                    '--output', str(staging/'portable/caption_audio.dll')], check=True)
+    shutil.copy2(ROOT/'native/CaptionAudio/vendor/COPYING', staging/'portable/SpeexDSP-LICENSE.txt')
     data = staging / 'portable/data/downloads'; data.mkdir(parents=True)
     for backend in ('cpu','vulkan'):
         key = 'windows-x86_64-' + backend
@@ -63,8 +68,16 @@ def build(output, offline_models=False):
     if offline_models:
         shutil.copytree(ROOT / 'dist/portable-data/models', staging / 'portable/data/models')
     # Setup will rebuild absolute configuration paths on the recipient's machine.
-    (staging / 'Start CaptionFlow.cmd').write_text('@echo off\r\ncd /d "%~dp0"\r\nif not exist "portable\\data" mkdir "portable\\data"\r\n"python\\python.exe" -u "portable\\app.py" >> "portable\\data\\launcher.log" 2>&1\r\nif errorlevel 1 (echo CaptionFlow could not start. See portable\\data\\launcher.log & pause)\r\n')
-    (staging / 'README.txt').write_text('CaptionFlow Windows x64 preview\n\nExtract the entire ZIP before opening Start CaptionFlow.cmd. No Python or CUDA installation is required. A current Vulkan-capable graphics driver is required for GPU mode. Choose CPU if Vulkan is unavailable.\n\nFirst launch asks whether to participate online. No means no internet access: supply the pinned models offline, then click Download / verify models to configure cached files. Yes permits downloads, diagnostic metrics and signed update checks. No audio or transcript uploads.\n\nClick Download / verify models, then Start listening. Default microphone and Windows system audio are supported in code; Windows capture/GPU execution has not yet been validated on physical hardware.\n\nClick Start / resume benchmark. Choose Until I stop, Quick (5 minutes), 30 minutes or Overnight (8 hours). Setup and CPU fallback are automatic. Stop saves partial results; matching runs resume. Failed profiles are skipped. Keep the laptop plugged in with its lid open. Export diagnostics / results creates a ZIP for asynchronous troubleshooting. Keep portable/data when moving to a new release.\n\nThis is a preview assembled on macOS, not Windows-certified. Third-party licenses are included in the embedded Python, wheels and runtime archives.\n')
+    launcher = [
+        '@echo off', 'cd /d "%~dp0"',
+        'set "CAPTIONFLOW_DATA=%~dp0portable\\data"',
+        'if exist "%LOCALAPPDATA%\\CaptionFlow\\network-consent.json" set "CAPTIONFLOW_DATA=%LOCALAPPDATA%\\CaptionFlow"',
+        'if not exist "%CAPTIONFLOW_DATA%" mkdir "%CAPTIONFLOW_DATA%"',
+        '"python\\python.exe" -u "portable\\launch.py" --data "%CAPTIONFLOW_DATA%"',
+        'if errorlevel 1 (echo CaptionFlow could not start. See "%CAPTIONFLOW_DATA%\\launcher.log" & pause)',
+    ]
+    (staging / 'Start CaptionFlow.cmd').write_bytes(('\r\n'.join(launcher)+'\r\n').encode('utf-8'))
+    (staging / 'README.txt').write_text('CaptionFlow Windows x64 preview\n\nExtract the entire ZIP before opening Start CaptionFlow.cmd. No Python or CUDA installation is required. A current Vulkan-capable graphics driver is required for GPU mode. Choose CPU if Vulkan is unavailable.\n\nFirst launch asks whether to participate online. No means no internet access: supply the pinned models offline, then click Download / verify models to configure cached files. Yes permits downloads, diagnostic metrics and signed update checks. No audio or transcript uploads.\n\nClick Download / verify models, then Start listening. Choose Microphone + call audio for a single mixed transcription stream. Speaker echo cancellation is enabled; headphones are recommended for the first test. Windows hardware capture and GPU performance still need validation on your machine.\n\nClick Start / resume benchmark. Choose Until I stop, Quick (5 minutes), 30 minutes or Overnight (8 hours). Setup and CPU fallback are automatic. Stop saves partial results; matching runs resume. Failed profiles are skipped. Keep the laptop plugged in with its lid open. Export diagnostics / results creates a ZIP for asynchronous troubleshooting. Keep portable/data when moving to a new release.\n\nInstaller startup and automated audio tests run on Windows CI. Physical device and driver behavior require testing. Third-party licenses are included in the embedded Python, wheels and runtime archives.\n')
     lock_path.write_text(json.dumps(lock, indent=2) + '\n')
     (staging / 'dependency-sha256.json').write_text(json.dumps(lock, indent=2))
     output = Path(output).resolve(); output.parent.mkdir(parents=True, exist_ok=True)

@@ -35,3 +35,26 @@ class BenchmarkUITests(unittest.TestCase):
             window.close()
 
 if __name__=='__main__':unittest.main()
+
+class MixedCaptureTests(unittest.TestCase):
+    def test_mixed_audio_uses_exactly_one_worker(self):
+        from unittest.mock import MagicMock
+        import base64
+        application=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as d:
+            window=app.Window(d,smoke_test=True)
+            session=MagicMock();session.process.returncode=0
+            capture=MagicMock();pcm=b'\x00'*6400
+            calls=[]
+            def next_frame(cancelled):
+                if calls:
+                    cancelled.set();return None
+                calls.append(True);return pcm
+            capture.next.side_effect=next_frame
+            with patch.object(app,'doctor'),patch.object(app,'WorkerSession',return_value=session) as worker,patch('audio_pipeline.AudioProcess',return_value=capture) as helper:
+                window.capture({},'mixed')
+                worker.assert_called_once()
+                self.assertEqual(helper.call_args.args[0],'mixed')
+                session.send.assert_called_once_with({'type':'audio','pcm':base64.b64encode(pcm).decode()})
+                capture.close.assert_called_once()
+            window.close()

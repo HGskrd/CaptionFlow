@@ -5,7 +5,8 @@ let package = Package(
     platforms: [.macOS(.v14)],
     products: [.executable(name: "CaptionFlow", targets: ["CaptionFlow"])],
     targets: [
-        .executableTarget(name: "CaptionFlow", resources: [.copy("Resources/worker")]),
+        .target(name: "CaptionAudio", path: "native/CaptionAudio", exclude: ["vendor/COPYING", "vendor/README.txt"], publicHeadersPath: "include", cSettings: [.define("HAVE_CONFIG_H"), .headerSearchPath("vendor")]),
+        .executableTarget(name: "CaptionFlow", dependencies: ["CaptionAudio"], resources: [.copy("Resources/worker")]),
         .testTarget(name: "CaptionFlowTests", dependencies: ["CaptionFlow"])
     ]
 )

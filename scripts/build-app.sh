@@ -7,6 +7,7 @@ APP="$PWD/dist/CaptionFlow.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 BIN="$(swift build -c "$CONFIGURATION" --show-bin-path)"
 cp "$BIN/CaptionFlow" "$APP/Contents/MacOS/CaptionFlow"
+cp native/CaptionAudio/vendor/COPYING "$APP/Contents/Resources/SpeexDSP-LICENSE.txt"
 # Put runtime resources in the standard signed bundle resource directory.
 rm -rf "$APP/CaptionFlow_CaptionFlow.bundle"
 rm -rf "$APP/Contents/Resources/worker"
@@ -21,7 +22,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>CaptionFlow</string>
 <key>CFBundleDisplayName</key><string>CaptionFlow</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.2.0</string>
+<key>CFBundleShortVersionString</key><string>0.3.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSMicrophoneUsageDescription</key><string>CaptionFlow listens to your microphone to create private, on-device subtitles.</string>

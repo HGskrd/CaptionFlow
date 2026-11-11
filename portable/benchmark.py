@@ -87,7 +87,7 @@ def trial(config, fixture_path, duration, mode, cancelled=None, checkpoint=None)
     started = time.monotonic()
     result = {"status": "error", "mode": mode, "audio_seconds": 0, "planned_audio_seconds": seconds, "repetitions": repetitions,
               "fixture_sha256": fixture["sha256"], "fixture_kind": fixture.get("kind", "unspecified"),
-              "quality_scope": "fixture_only", "power_watts": None, "gpu_utilization": None,
+              "quality_scope": "overlap_stress_no_ordered_wer" if fixture.get("overlapping_speech") else "fixture_only", "power_watts": None, "gpu_utilization": None,
               "vram_peak_bytes": None, "temperature_c": None}
     sent_frames = 0
     last_source = [time.monotonic()]
@@ -212,7 +212,7 @@ def trial(config, fixture_path, duration, mode, cancelled=None, checkpoint=None)
                       translation_lag_seconds=distribution(translation_lags) if mode == "realtime" else None,
                       missing_final_captions=len(set(boundaries) - set(finals)),
                       missing_final_translations=missing_translations,
-                      word_error_rate=word_error(expected, text) if not partial else None,
+                      word_error_rate=word_error(expected, text) if not partial and not fixture.get("overlapping_speech") else None,
                       revision_erasure_ratio=erased / max(1, emitted),
                       backlog_seconds=distribution([y for _, y in backlog]),
                       backlog_growth_seconds_per_second=slope(backlog),
@@ -293,7 +293,7 @@ def health_failure(began, last_source, now, audio_seconds, backlog):
 def benchmark_signature(identities, fixture, trial_seconds, machine):
     # Include the benchmark, client, dependencies and runtime binaries, not only worker.py.
     implementation = hashlib.sha256()
-    for path in sorted(Path(__file__).parent.glob("*.py")) + [Path(__file__).parent / "requirements.txt"]:
+    for path in sorted(Path(__file__).parent.glob("*.py")) + sorted(Path(__file__).parent.glob("caption_audio.*")) + [Path(__file__).parent / "requirements.txt"]:
         implementation.update(path.name.encode()); implementation.update(path.read_bytes())
     spec = {"profiles": identities, "fixture": fixture, "trial_seconds": trial_seconds,
             "hardware": machine, "runner": implementation.hexdigest(), "python": platform.python_version()}

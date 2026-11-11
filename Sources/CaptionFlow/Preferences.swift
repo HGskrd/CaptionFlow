@@ -11,7 +11,7 @@ struct RGBA: Codable, Equatable {
     }
 }
 enum DisplayMode: String, Codable, CaseIterable { case original = "Original", translated = "Translation", both = "Both" }
-enum AudioSource: String, Codable, CaseIterable { case microphone = "Microphone", system = "Mac audio" }
+enum AudioSource: String, Codable, CaseIterable { case mixed = "Microphone + Mac audio", microphone = "Microphone", system = "Mac audio" }
 enum CaptionFlowMode: String, Codable, CaseIterable {
     case sentence = "Sentence"
     case words = "Words"
@@ -28,7 +28,7 @@ struct Preferences: Codable {
     var foreground = RGBA(0.96, 0.96, 0.94)
     var background = RGBA(0.065, 0.075, 0.085)
     var displayMode = DisplayMode.both
-    var source = AudioSource.microphone
+    var source = AudioSource.mixed
     var sourceLanguage = "auto"
     var targets = ["French"]
     var roots: [String] = []

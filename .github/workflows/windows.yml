@@ -8,19 +8,31 @@ permissions:
   contents: read
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: '3.14'
-      - run: sudo apt-get update -qq && sudo apt-get install -y nsis
+      - name: Install packaging tools
+        timeout-minutes: 5
+        run: |
+          # Keep apt signature/hash verification; avoid unavailable archive DNS.
+          for source in /etc/apt/apt-mirrors*.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$source" ]; then
+              sudo sed -i -E 's#https?://(azure.archive|archive|security)\.ubuntu\.com/ubuntu/?#https://mirrors.edge.kernel.org/ubuntu/#g' "$source"
+            fi
+          done
+          sudo apt-get update -qq -o Dir::Etc::sourcelist=sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=1 -o Acquire::https::Timeout=30
+          sudo apt-get install -y --no-install-recommends -o Acquire::Retries=1 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 nsis gcc-mingw-w64-x86-64-posix
       - run: python scripts/build-windows.py
       - run: makensis -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup.exe" packaging/windows.nsi
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: CaptionFlow-Windows
-          path: dist/CaptionFlow-Setup.exe
+          path: |
+            dist/CaptionFlow-Setup.exe
+            dist/CaptionFlow-Windows-x64.zip
   test:
     needs: build
     runs-on: windows-latest
@@ -38,5 +50,11 @@ jobs:
           $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
           & "$install\python\python.exe" "$install\portable\launch.py" --smoke-test --data "$env:TEMP\CaptionFlow-smoke"
           if ($LASTEXITCODE -ne 0) { Get-Content "$env:TEMP\CaptionFlow-smoke\launcher.log"; throw 'Launch failed' }
+          Copy-Item "$install\portable\caption_audio.dll" portable\caption_audio.dll
           & "$install\python\python.exe" -m unittest discover -s tests_portable -v
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: swift test

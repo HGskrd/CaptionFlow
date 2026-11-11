@@ -12,8 +12,8 @@ import urllib.request
 from common import redact
 
 BASE_URL = "https://h.gskrd.me/apps/captionflow"
-VERSION = "0.2.1"
-RELEASE_SEQUENCE = 2
+VERSION = "0.3.0"
+RELEASE_SEQUENCE = 3
 # Release verification key is public. Signing key stays off the VPS and outside the repo.
 PUBLIC_KEY = "yTp27s/gWvh5/qBk/I6/IcszfL0oPFANbj1ffM+QDiQ="
 FORBIDDEN = {"audio", "pcm", "transcript", "text", "hostname", "serial", "username", "token",
@@ -100,6 +100,11 @@ class Feedback:
         body = {"schema": 1, "app_version": VERSION, "hardware": public_report(machine), "phase": phase,
                 "error_fingerprint": hashlib.sha256(str(error).encode()).hexdigest() if error else None}
         self.request("/v1/diagnostics", body)
+
+    def audio_diagnostic(self, metrics):
+        self.enroll()
+        self.request('/v1/diagnostics', {'schema': 1, 'app_version': VERSION,
+                     'phase': 'audio_capture', 'metrics': public_report(metrics)})
 
     def revoke(self):
         error = None

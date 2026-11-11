@@ -6,6 +6,8 @@ Local live captions and translation.
 
 Run the installer, then open CaptionFlow from the Start menu. No Python or CUDA installation needed. First setup downloads the models (~2 GB).
 
+Choose **Microphone + call audio** to caption both sides through one model.
+
 To benchmark: **Start / resume benchmark** → **Until I stop** or **Quick · 5 minutes**. Progress is saved automatically.
 
 [Releases](https://github.com/HGskrd/CaptionFlow/releases) · [Build and technical notes](docs/windows-and-benchmarks.md)

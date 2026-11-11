@@ -99,7 +99,7 @@ final class AppState: ObservableObject {
     func start() {
         guard !active, !installing else { return }
         capturePermissionIssue = false
-        if preferences.source == .system && !CGPreflightScreenCaptureAccess() {
+        if preferences.source != .microphone && !CGPreflightScreenCaptureAccess() {
             capturePermissionIssue = true
             error = "macOS has not authorized this build of CaptionFlow to capture Mac audio. If the switch is already enabled, the saved permission may refer to an older build. Remove the old CaptionFlow entry and add this app again in Screen & System Audio Recording, then quit and reopen CaptionFlow."
             return

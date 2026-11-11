@@ -1,0 +1,9 @@
+{
+  "audio": "fr-call-overlap.wav",
+  "sha256": "5f59849f038259fef8fb5f375125925054f9a9863c9bcb9dd6d1643c36ff4637",
+  "language": "fr",
+  "kind": "synthetic_mixed_call_overlap",
+  "reference": "Le train part demain matin à neuf heures. Les voyageurs doivent arriver à la gare avec leurs billets. Bonjour, je vous entends bien. Nous pouvons commencer la réunion.",
+  "overlapping_speech": true,
+  "provenance": "Synthetic Thomas and Amélie voices, 30ms simulated speaker echo, shared CaptionAudio mixer. Not a real-room accuracy corpus."
+}

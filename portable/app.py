@@ -4,7 +4,6 @@ import base64
 import json
 import os
 from pathlib import Path
-import queue
 import sys
 import threading
 import time
@@ -14,7 +13,7 @@ import zipfile
 from PySide6.QtCore import Qt, Signal, QObject
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QComboBox, QPlainTextEdit, QFileDialog, QSpinBox, QMessageBox)
+    QLabel, QPushButton, QComboBox, QPlainTextEdit, QFileDialog, QSpinBox, QMessageBox, QCheckBox)
 from common import ROOT, WorkerSession, doctor, hardware, redact
 from runtime_assets import install
 from feedback import Feedback, VERSION
@@ -46,8 +45,13 @@ class Window(QMainWindow):
         self.backend = QComboBox(); self.backend.addItems(["Vulkan", "CPU"] if os.name == "nt" else ["Metal", "CPU"])
         controls.addWidget(QLabel("Compute")); controls.addWidget(self.backend)
         self.setup = QPushButton("Download / verify models"); self.setup.clicked.connect(self.install_models); controls.addWidget(self.setup)
-        self.input = QComboBox(); self.input.addItems(["Default microphone", "System audio (Windows)"])
+        self.input = QComboBox()
+        for label, mode in (("Microphone + call audio", "mixed"), ("Microphone", "microphone"), ("System audio", "system")):
+            if os.name == "nt" or mode == "microphone": self.input.addItem(label, mode)
         controls.addWidget(self.input)
+        self.echo = QCheckBox("Speaker echo cancellation"); self.echo.setChecked(True)
+        self.echo.setToolTip("Removes speaker leakage from your microphone before mixing. You can turn this off when using headphones.")
+        layout.addWidget(self.echo)
         self.source = QComboBox(); self.source.addItems(["French", "English", "Auto"]); controls.addWidget(self.source)
         self.target = QComboBox(); self.target.addItems(["English", "French", "Off"]); controls.addWidget(self.target)
         self.listen = QPushButton("Start listening"); self.listen.clicked.connect(self.start_listening); controls.addWidget(self.listen)
@@ -59,6 +63,10 @@ class Window(QMainWindow):
             label.setFont(font); label.setTextFormat(Qt.PlainText)
             label.setMargin(25); layout.addWidget(label, 1)
         bench = QHBoxLayout(); layout.addLayout(bench)
+        self.fixture = QComboBox()
+        for label, filename in (("Mixed call · turn-taking", "fr-call-turns.json"), ("Mixed call · overlap", "fr-call-overlap.json"), ("Clean speech", "fr-synthetic.json")):
+            self.fixture.addItem(label, filename)
+        bench.addWidget(self.fixture)
         self.hours = QComboBox()
         for label, budget in (("Until I stop", None), ("Quick · 5 minutes", 5/60), ("30 minutes", .5), ("Overnight · 8 hours", 8)):
             self.hours.addItem(label, budget)
@@ -71,7 +79,7 @@ class Window(QMainWindow):
         self.log = QPlainTextEdit(); self.log.setReadOnly(True); self.log.setMaximumBlockCount(200); self.log.setMaximumHeight(140); layout.addWidget(self.log)
         QShortcut(QKeySequence("F11"), self, activated=self.toggle_fullscreen)
         QShortcut(QKeySequence("Escape"), self, activated=self.showNormal)
-        self.status("Models stay local. Setup downloads about 2 GB. Benchmarks replay the bundled synthetic French fixture; they do not record you.")
+        self.status("Models stay local. Setup downloads about 2 GB. Benchmarks replay synthetic calls; they do not record you.")
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
         if not smoke_test:
             from PySide6.QtCore import QTimer
@@ -141,7 +149,7 @@ class Window(QMainWindow):
     def launch(self, work):
         if self.task and self.task.is_alive(): return
         self.cancelled.clear()
-        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.export, self.privacy, self.update):
+        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
             widget.setEnabled(False)
         self.stop.setEnabled(True)
         def execute():
@@ -154,7 +162,7 @@ class Window(QMainWindow):
 
     def done(self, message):
         self.status(message)
-        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.export, self.privacy, self.update):
+        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
             widget.setEnabled(True)
         self.stop.setEnabled(False)
         self.session = None
@@ -188,60 +196,68 @@ class Window(QMainWindow):
             config = self.configuration()
         except Exception as exc:
             self.status(str(exc)); return
-        loopback = self.input.currentIndex() == 1
-        if loopback and os.name != "nt":
+        mode = self.input.currentData()
+        if mode != "microphone" and os.name != "nt":
             self.status("Use the native macOS app for Mac system audio capture."); return
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
-        self.launch(lambda: self.capture(config, loopback))
+        echo = self.echo.isChecked()
+        self.launch(lambda: self.capture(config, mode, echo))
 
-    def capture(self, config, loopback):
-        import numpy as np
-        import soundcard as sc
+    def capture(self, config, mode, echo=True):
+        from audio_pipeline import AudioProcess
         doctor(config)
         self.session = WorkerSession(config, lambda _, event: self.signals.event.emit(event))
-        audio = queue.Queue(maxsize=50)  # Five seconds, never silently drop frames.
-        capture_error = []
-        sender_error = []
+        diagnostic = self.data / ("audio-" + str(time.time_ns()) + ".json")
+        audio = AudioProcess(mode, diagnostic, echo)
+        # Bounded local history; never store captured audio or captions.
+        for old in sorted(self.data.glob("audio-*.json"))[:-9]: old.unlink(missing_ok=True)
         try:
             self.session.ready(cancelled=self.cancelled)
-            device = sc.get_microphone(sc.default_speaker().id, include_loopback=True) if loopback else sc.default_microphone()
-            if device is None: raise RuntimeError("No default audio input is available")
-            self.signals.status.emit("Listening · " + ("system audio" if loopback else "microphone"))
-            def sender():
+            if self.cancelled.is_set(): return
+            audio.start()
+            self.signals.status.emit("Listening · " + mode + " · one transcription stream")
+            sending = [None]; faults = []
+            def forward():
                 try:
-                    while not self.cancelled.is_set() or not audio.empty():
-                        try: pcm = audio.get(timeout=.2)
-                        except queue.Empty: continue
-                        self.session.send({"type": "audio", "pcm": base64.b64encode(pcm).decode()})
-                except Exception as exc:
-                    sender_error.append(str(exc)); self.cancelled.set()
-            transport = threading.Thread(target=sender, daemon=True); transport.start()
-            try:
-                # Capture all native channels: SoundCard documents corrupt mono WASAPI capture.
-                # WASAPI/CoreAudio resamples to 16 kHz; average channels after capture.
-                with device.recorder(samplerate=16000, blocksize=1600) as recorder:
                     while not self.cancelled.is_set():
-                        frame = recorder.record(numframes=1600)
-                        pcm = np.mean(frame, axis=1).astype("<f4").tobytes()
-                        try: audio.put_nowait(pcm)
-                        except queue.Full:
-                            raise RuntimeError("Audio transport is five seconds behind; stopped without silently dropping speech")
-                        if self.session.process.poll() is not None:
-                            raise RuntimeError("Inference worker stopped. Export diagnostics for details.")
-            except Exception as exc:
-                capture_error.append(str(exc))
-            finally:
-                self.cancelled.set(); transport.join(timeout=5)
-                if transport.is_alive():
-                    self.session.close(); transport.join(timeout=3)
-            if capture_error or sender_error: raise RuntimeError("; ".join(capture_error + sender_error))
-            self.session.stop(timeout=30)
+                        pcm = audio.next(self.cancelled)
+                        if pcm is None: break
+                        sending[0] = ("audio", time.monotonic())
+                        self.session.send({"type": "audio", "pcm": base64.b64encode(pcm).decode()})
+                        sending[0] = None
+                    sending[0] = ("stop", time.monotonic())
+                    self.session.stop(timeout=5)
+                    sending[0] = None
+                except Exception as exc: faults.append(exc)
+            transport = threading.Thread(target=forward, daemon=True); transport.start()
+            while transport.is_alive():
+                transport.join(timeout=.1)
+                pending = sending[0]
+                if pending is not None and ((pending[0] == "audio" and self.cancelled.is_set()) or time.monotonic()-pending[1] > 5):
+                    self.session.process.terminate()  # unblock a wedged stdin write, including Stop
+                    transport.join(timeout=2)
+                    if transport.is_alive():
+                        self.session.process.kill(); transport.join(timeout=2)
+                    if not self.cancelled.is_set(): raise RuntimeError("Inference audio transport stalled for five seconds")
+                    break
+            if faults and not self.cancelled.is_set(): raise faults[0]
         finally:
+            failed = sys.exc_info()[0] is not None
+            audio.close()
+            if diagnostic.exists():
+                report = json.loads(diagnostic.read_text())
+                if report.get("status") != "failed":
+                    report["status"] = "failed" if failed else "stopped"
+                    if failed: report["failure_code"] = "parent_capture_or_transport_failure"
+                    diagnostic.write_text(json.dumps(report, indent=2))
             self.cancelled.set()
             if self.session:
                 self.session.close()
                 if self.session.process.returncode:
                     self.signals.status.emit("\n".join(self.session.logs)[-8000:])
+            if self.feedback.allowed and diagnostic.exists():
+                try: self.feedback.audio_diagnostic(json.loads(diagnostic.read_text()))
+                except Exception as exc: self.signals.status.emit("Audio report saved locally; upload pending: " + redact(exc))
 
     def receive(self, event):
         kind = event["type"]
@@ -266,6 +282,7 @@ class Window(QMainWindow):
         from benchmark import run_suite
         backend = self.backend.currentText().lower()
         hours = self.hours.currentData()
+        fixture = ROOT / "docs/fixtures" / self.fixture.currentData()
         self.status("Preparing benchmark automatically. Stop saves partial results; matching runs resume next time. Failed profiles are skipped.")
         def work():
             paths = []
@@ -301,7 +318,11 @@ class Window(QMainWindow):
                     if reports:
                         try: self.feedback.upload(json.loads(reports[-1].read_text()), force=False)
                         except Exception as exc: self.signals.status.emit("Report upload pending: " + redact(exc))
-            report = run_suite(paths, ROOT / "docs/fixtures/fr-synthetic.json", output,
+            from audio_benchmark import run as audio_check
+            evidence = audio_check(self.data / "audio-dsp-benchmark.json")
+            self.signals.status.emit(f"Audio mixer check: {evidence['echo_reduction_db']:.1f} dB simulated echo reduction; {evidence['processing_realtime_factor']:.3f}× real-time processing cost")
+            if not evidence["passed"]: raise RuntimeError("Audio mixer self-test failed. Export diagnostics.")
+            report = run_suite(paths, fixture, output,
                                hours=hours, trial_seconds=60, cancelled=self.cancelled, progress=progress)
             if self.feedback.allowed:
                 try: self.feedback.upload(report)
@@ -313,7 +334,7 @@ class Window(QMainWindow):
         if not destination: return
         with zipfile.ZipFile(destination, "w", zipfile.ZIP_DEFLATED) as archive:
             archive.writestr("hardware.json", json.dumps(hardware(), indent=2))
-            for pattern in ("application*.log", "doctor-*.json", "benchmark-*/report.json", "benchmark-*/*/report.json"):
+            for pattern in ("application*.log", "launcher.log", "audio-*.json", "doctor-*.json", "benchmark-*/report.json", "benchmark-*/*/report.json"):
                 for path in self.data.glob(pattern):
                     archive.writestr(str(path.relative_to(self.data)), redact(path.read_text(encoding="utf-8")))
             archive.writestr("README.txt", "Local diagnostic export. No captured audio or caption text is logged. Review hardware and error messages before sharing. No automatic upload occurs.\n")

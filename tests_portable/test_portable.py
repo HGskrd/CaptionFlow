@@ -140,8 +140,8 @@ class ServiceTests(unittest.TestCase):
 class UpdateRetryTests(unittest.TestCase):
     def test_downloaded_update_remains_offered_until_installed(self):
         with tempfile.TemporaryDirectory() as d:
-            client=feedback.Feedback(d);client.consent(True);client.state['highest_release']=3
-            release={'sequence':3}
+            client=feedback.Feedback(d);client.consent(True);client.state['highest_release']=feedback.RELEASE_SEQUENCE+1
+            release={'sequence':feedback.RELEASE_SEQUENCE+1}
             with patch.object(client,'request',return_value={'payload':'mock'}),patch.object(feedback,'verify_manifest',return_value=release):
                 self.assertEqual(client.check_update(),release)
             with patch.object(client,'request',return_value={'payload':'mock'}),patch.object(feedback,'verify_manifest',return_value={'sequence':1}):

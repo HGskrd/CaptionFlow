@@ -41,9 +41,15 @@ class Window(QMainWindow):
         self.task = None; self.session = None; self.closing = False
         self.setWindowTitle("CaptionFlow"); self.resize(1100, 740)
         body = QWidget(); self.setCentralWidget(body); layout = QVBoxLayout(body)
+        models = QHBoxLayout(); layout.addLayout(models)
+        self.speech = QComboBox()
+        for label, identity in (("Nemotron 3.5 · 0.6B · streaming", "nemotron"), ("Phonon 2.5 · compact · CPU chunks", "phonon")):
+            self.speech.addItem(label, identity)
+        models.addWidget(QLabel("Speech")); models.addWidget(self.speech)
+        models.addStretch()
         controls = QHBoxLayout(); layout.addLayout(controls)
         self.backend = QComboBox(); self.backend.addItems(["Vulkan", "CPU"] if os.name == "nt" else ["Metal", "CPU"])
-        controls.addWidget(QLabel("Compute")); controls.addWidget(self.backend)
+        controls.addWidget(QLabel("Compute / translation")); controls.addWidget(self.backend)
         self.setup = QPushButton("Download / verify models"); self.setup.clicked.connect(self.install_models); controls.addWidget(self.setup)
         self.input = QComboBox()
         for label, mode in (("Microphone + call audio", "mixed"), ("Microphone", "microphone"), ("System audio", "system")):
@@ -134,8 +140,11 @@ class Window(QMainWindow):
         with path.open("a", encoding="utf-8") as stream:
             stream.write(time.strftime("%Y-%m-%d %H:%M:%S ") + message + "\n")
 
-    def config_path(self):
-        return self.data / ("configuration-" + self.backend.currentText().lower() + ".json")
+    def config_path(self, backend=None, speech=None):
+        backend = backend or self.backend.currentText().lower()
+        speech = speech or self.speech.currentData()
+        suffix = "" if speech == "nemotron" else "-" + speech
+        return self.data / ("configuration-" + backend + suffix + ".json")
 
     def configuration(self):
         path = self.config_path()
@@ -149,7 +158,7 @@ class Window(QMainWindow):
     def launch(self, work):
         if self.task and self.task.is_alive(): return
         self.cancelled.clear()
-        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
+        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.speech, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
             widget.setEnabled(False)
         self.stop.setEnabled(True)
         def execute():
@@ -162,7 +171,7 @@ class Window(QMainWindow):
 
     def done(self, message):
         self.status(message)
-        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
+        for widget in (self.setup, self.listen, self.benchmark, self.backend, self.speech, self.input, self.source, self.target, self.hours, self.fixture, self.echo, self.export, self.privacy, self.update):
             widget.setEnabled(True)
         self.stop.setEnabled(False)
         self.session = None
@@ -181,12 +190,13 @@ class Window(QMainWindow):
 
     def install_models(self):
         backend = self.backend.currentText().lower(); destination = self.config_path()
+        speech = self.speech.currentData()
         def setup():
-            config = install(self.data, backend, progress=self.signals.status.emit, allow_network=self.feedback.allowed)
+            config = install(self.data, backend, progress=self.signals.status.emit, allow_network=self.feedback.allowed, speech=speech)
             evidence = doctor(config)
             destination.write_text(json.dumps(config, indent=2), encoding="utf-8")
-            (self.data / f"doctor-{backend}.json").write_text(json.dumps(evidence, indent=2))
-            self.signals.status.emit("Verified CUDA-free speech runtime: " + backend)
+            (self.data / f"doctor-{backend}-{speech}.json").write_text(json.dumps(evidence, indent=2))
+            self.signals.status.emit("Verified CUDA-free speech runtime: " + (backend if speech == "nemotron" else speech + " CPU"))
         self.launch(setup)
         # Downloads resume after interruption; stop cannot cancel a blocking HTTP read.
         self.stop.setEnabled(False)
@@ -281,6 +291,7 @@ class Window(QMainWindow):
     def start_benchmark(self):
         from benchmark import run_suite
         backend = self.backend.currentText().lower()
+        speech = self.speech.currentData()
         hours = self.hours.currentData()
         fixture = ROOT / "docs/fixtures" / self.fixture.currentData()
         self.status("Preparing benchmark automatically. Stop saves partial results; matching runs resume next time. Failed profiles are skipped.")
@@ -297,20 +308,20 @@ class Window(QMainWindow):
                         if self.cancelled.is_set(): raise InterruptedError("Setup paused; downloads can resume")
                         self.signals.status.emit(message)
                     config = install(self.data, candidate, progress=setup_progress,
-                                     allow_network=self.feedback.allowed)
-                    (self.data / f"configuration-{candidate}.json").write_text(json.dumps(config, indent=2))
+                                     allow_network=self.feedback.allowed, speech=speech)
+                    self.config_path(candidate, speech).write_text(json.dumps(config, indent=2))
                 except Exception as exc:
                     self.signals.status.emit(f"{candidate} setup failed: {redact(exc)}. Trying the next backend.")
                     continue
-                for context in (3, 0, 6):
+                for context in ((3, 0, 6) if speech == "nemotron" else (None,)):
                     for translate in (False, True):
                         profile = {**config, "source_language": "fr", "nemotron_right_context": context,
                                    "targets": ["English"] if translate else []}
-                        path = profile_dir / f"{candidate}-{context}-{int(translate)}.json"
+                        path = profile_dir / f"{speech}-{candidate}-{context}-{int(translate)}.json"
                         path.write_text(json.dumps(profile, indent=2)); paths.append(str(path))
             if not paths:
                 raise RuntimeError("No backend could be prepared. Setup errors were saved in the diagnostic log; offline mode requires cached models and runtimes.")
-            output = self.data / ("benchmark-" + backend)
+            output = self.data / ("benchmark-" + backend + ("" if speech == "nemotron" else "-" + speech))
             def progress(message):
                 self.signals.status.emit(message)
                 if self.feedback.allowed:

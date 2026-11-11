@@ -77,7 +77,15 @@ Publish archives first, then atomically replace the platform JSON under `/var/li
 - **Hy-MT2 7B:** quality candidate using the existing family prompt; not the low-memory default. [Model](https://huggingface.co/mlx-community/Hy-MT2-7B-4bit).
 - **TranslateGemma 4B:** requires its structured translation prompt and language codes; generic instruction prompts are insufficient. [Official model](https://huggingface.co/google/translategemma-4b-it).
 
-Only Nemotron and the existing Hy-MT2 family are integrated in this portable preview. The other candidates remain research entries, not untested selectable promises. Existing MLX Audio 0.5.4 installations are not upgraded by this work.
+The sub-2B options are now Nemotron 3.5 (native Metal/Vulkan/CPU streaming), Phonon 2.5 (MLX on Mac, CPU-only PyTorch on Windows), and Parakeet Redux (MLX on Mac). Redux and Phonon use revisable audio chunks, not stateful live input. Mac setup upgrades MLX Audio to 0.6.5 and MLX LM to 0.32.2. Existing larger options remain available; Granite 2B is outside the strictly-under-2B additions.
+
+Redux’s Photon kernel package requires a separate licence agreement, so it is not bundled for Windows. The independent MLX implementation is used on Mac. The Windows Phonon runtime is fermion-research 0.2.15 with an explicitly CPU-only PyTorch 2.15.0 wheel. No CUDA runtime is required.
+
+Select Speech before starting or resuming a benchmark. Results are separated by checkpoint hashes, runtime, translation settings and app version. Compact-model profiles test translation on/off; Nemotron also tests three right-context settings. All models still require measurement on the intended Windows hardware.
+
+Checkpoints are pinned in `small_models.py`. Redux is derived from NVIDIA Parakeet TDT 0.6B v3 by Moondream; Phonon 2.5 is derived from it by Fermion Research. Both weights use CC-BY-4.0; source cards and attribution: [Redux](https://huggingface.co/moondream/parakeet-redux), [Phonon](https://huggingface.co/FermionResearch/Phonon-2.5), [original Parakeet](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3). CaptionFlow does not retrain these weights. Compressed download size is not resident memory or parameter count.
+
+Real-model checks: `python scripts/test_small_models.py --cache /path/to/cache --backend cpu --download --output evidence.json` (Phonon), or `--backend mlx` (Redux and Phonon on Apple Silicon). After explicit setup downloads, direct inference rejects outbound socket connections. The check also replays French speech through the production worker and verifies final captions. It is a regression fixture, not a general accuracy or minimum-hardware claim.
 
 ## Delivery verification
 

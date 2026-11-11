@@ -39,6 +39,10 @@ def resolve_model(value, cache_dir, allow_downloads):
         return str(path)
     if value.startswith(("/", "~", ".")):
         raise ValueError(f"Model folder is missing: {path}. Reconnect the disk or select another model.")
+    from small_models import SPEECH_MODELS, install_model
+    identity = next((key for key, spec in SPEECH_MODELS.items() if spec["repo"] == value), None)
+    if identity:
+        return install_model(identity, cache_dir, lambda message: emit("status", message=message), allow_downloads)
     from huggingface_hub import snapshot_download
     from huggingface_hub.utils import tqdm
 
@@ -337,6 +341,10 @@ def speech_engine(model_path):
         config = json.load(handle)
     if config.get("n_mels") is not None and config.get("n_audio_ctx") is not None:
         return "whisper"
+    if config.get("model_type") in {"phonon2", "parakeet_tdt_five_value"}:
+        return "phonon2"
+    if config.get("model_type") == "parakeet_tdt":
+        return "parakeet"
     if config.get("model_type") == "voxtral_realtime":
         return "voxtral_realtime"
     if config.get("model_type") == "qwen3_asr":
@@ -349,8 +357,10 @@ def speech_engine(model_path):
 
 
 def run_snapshot_speech(inbox, engine, model, model_path, source_language, publish):
-    import mlx.core as mx
-    import mlx_whisper
+    if not engine.endswith("_cpu"):
+        import mlx.core as mx
+    if engine == "whisper":
+        import mlx_whisper
     last_text = None
     last_utterance = None
     while (job := inbox.next()) is not None:
@@ -368,6 +378,9 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
                         if segment.get("no_speech_prob", 0) < 0.6 and segment.get("avg_logprob", 0) > -1.0]
             text = " ".join(" ".join(reliable).split())
             language = result.get("language", source_language)
+        elif engine.endswith("_cpu"):
+            text = " ".join(model.transcribe(samples).split())
+            language = source_language
         elif engine == "qwen3_asr":
             result = model.generate(
                 mx.array(samples, dtype=mx.float32),
@@ -384,7 +397,7 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
             result = model.generate(mx.array(samples, dtype=mx.float32))
             text = " ".join(result.text.split())
             language = getattr(result, "language", None) or source_language
-        if not text or (text == last_text and utterance == last_utterance):
+        if not text or (text == last_text and utterance == last_utterance and not final):
             continue
         last_text = text
         last_utterance = utterance
@@ -400,9 +413,17 @@ def main():
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
     cache_dir = configuration["cache_dir"]
+    from small_models import NEMOTRON
+    if configuration["speech_model"] == NEMOTRON:
+        from runtime_assets import install
+        managed = install(Path(cache_dir).parent, "metal", translation=False, allow_network=allow,
+                          progress=lambda message: emit("status", message=message))
+        for key in ("speech_backend", "native_backend", "native_sdk", "speech_model", "gpu", "nemotron_right_context"):
+            configuration[key] = managed[key]
     native = configuration.get("speech_backend") == "nemo"
+    compact_cpu = configuration.get("speech_backend") in {"phonon_cpu"}
     speech = configuration["speech_model"] if native else resolve_model(configuration["speech_model"], cache_dir, allow)
-    engine = "nemotron_native" if native else speech_engine(speech)
+    engine = "nemotron_native" if native else configuration["speech_backend"] if compact_cpu else speech_engine(speech)
     delays = voxtral_delays(configuration) if engine == "voxtral_realtime" else None
     emit("status", message=f"Loading {engine.replace('_', ' ').title()}…")
     speech_model = None
@@ -411,15 +432,23 @@ def main():
         speech_model = NemoRecognizer(configuration["native_sdk"], speech,
                                       gpu=int(configuration.get("gpu", -1)),
                                       right_context=int(configuration.get("nemotron_right_context", 3)))
+    elif compact_cpu:
+        from small_models import CompactCPU
+        speech_model = CompactCPU(engine.removesuffix("_cpu"), speech)
     elif engine == "whisper":
         import mlx.core as mx
         from mlx_whisper.transcribe import ModelHolder
         ModelHolder.get_model(speech, mx.float16)
     else:
+        os.environ["MLX_AUDIO_CACHE_DIR"] = str(Path(cache_dir) / "converted")
         from mlx_audio.stt.utils import load_model
         speech_model = load_model(speech, model_type=engine)
         if engine == "voxtral_realtime":
             prepare_voxtral_model(speech_model)
+        elif engine == "phonon2" or getattr(speech_model, "__class__").__name__ == "ParakeetRedux":
+            # Compile the small-model Metal kernels before capture starts.
+            import mlx.core as mx
+            speech_model.generate(mx.zeros(16000, dtype=mx.float32))
     targets = list(dict.fromkeys(configuration.get("targets", [])))
     inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=native or engine == "voxtral_realtime")
     translations = None
@@ -437,8 +466,9 @@ def main():
     source_language = configuration.get("source_language", "auto")
     reader = threading.Thread(target=inbox.read, daemon=True)
     reader.start()
-    emit("ready", engine=engine, backend=configuration.get("native_backend", "metal"),
-         runtime_version=speech_model.version if native else "mlx",
+    emit("ready", engine=engine, backend="cpu" if compact_cpu else configuration.get("native_backend", "metal"),
+         runtime_version=speech_model.version if native or compact_cpu else "mlx",
+         runtime_details=getattr(speech_model, "details", None),
          translation_gpu_layers=getattr(translations.translator, "gpu_layers", None) if translations else None,
          streaming=native or engine == "voxtral_realtime")
     revision = 0

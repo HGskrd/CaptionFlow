@@ -253,18 +253,27 @@ def profile_identity(config, hashes=None):
         key = (str(path.resolve()), path.stat().st_size, path.stat().st_mtime_ns)
         if key not in hashes: hashes[key] = sha256(path)
         return hashes[key]
-    fields = ("speech_backend", "native_backend", "gpu", "nemotron_right_context", "source_language",
+    fields = ("speech_identity", "speech_backend", "native_backend", "gpu", "nemotron_right_context", "source_language",
               "targets", "translation_backend", "translation_model_type", "silence_threshold",
               "translation_partials", "translation_threads")
     identity = {key: config.get(key) for key in fields}
     for key in ("speech_model", "translation_model"):
         path = Path(config.get(key, ""))
         identity[key] = {"name": path.name, "sha256": digest(path) if path.is_file() else None}
+        if config.get(key) and path.is_dir():
+            identity[key]["files"] = {str(p.relative_to(path)): digest(p) for p in sorted(path.rglob("*"))
+                                      if p.is_file() and p.parent == path and p.suffix in {".json", ".safetensors", ".fermion", ".zst"}}
     for key in ("native_sdk", "llama_server"):
         path = Path(config.get(key, ""))
         if config.get(key) and path.exists():
             files = sorted(p for p in path.rglob("*") if p.is_file() and p.suffix in (".dll", ".dylib", ".so", ".exe")) if path.is_dir() else [path]
             identity[key + "_sha256"] = hashlib.sha256("".join(digest(p) for p in files).encode()).hexdigest()
+    import importlib.metadata
+    packages = ("torch", "fermion-research") if config.get("speech_backend") == "phonon_cpu" else ("mlx", "mlx-audio", "mlx-lm") if config.get("speech_backend") != "nemo" else ()
+    identity["runtime_packages"] = {}
+    for package in packages:
+        try: identity["runtime_packages"][package] = importlib.metadata.version(package)
+        except importlib.metadata.PackageNotFoundError: identity["runtime_packages"][package] = "missing"
     identity["worker_sha256"] = hashlib.sha256(b"".join(p.read_bytes() for p in sorted(WORKER_DIR.glob("*.py")))).hexdigest()
     return identity
 

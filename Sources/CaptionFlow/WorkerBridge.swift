@@ -19,7 +19,7 @@ final class WorkerBridge: @unchecked Sendable {
     static var resources: URL {
         Bundle.main.url(forResource: "worker", withExtension: nil) ?? Bundle.module.url(forResource: "worker", withExtension: nil)!
     }
-    static var isInstalled: Bool { FileManager.default.fileExists(atPath: support.appendingPathComponent("runtime/.ready-v2").path) }
+    static var isInstalled: Bool { FileManager.default.fileExists(atPath: support.appendingPathComponent("runtime/.ready-v3").path) }
 
     static func install(using pythonPath: String, progress: @escaping @Sendable (String) -> Void) async throws {
         try await Task.detached {
@@ -43,7 +43,7 @@ final class WorkerBridge: @unchecked Sendable {
             try run(pythonPath, ["-m", "venv", support.appendingPathComponent("runtime").path])
             progress("Installing MLX speech and translation dependencies…")
             try run(python.path, ["-m", "pip", "install", "--disable-pip-version-check", "-r", resources.appendingPathComponent("requirements.txt").path])
-            try Data().write(to: support.appendingPathComponent("runtime/.ready-v2"))
+            try Data().write(to: support.appendingPathComponent("runtime/.ready-v3"))
         }.value
     }
     func start(configuration: [String: Any]) throws {

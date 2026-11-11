@@ -13,6 +13,26 @@ import app
 import benchmark
 
 class BenchmarkUITests(unittest.TestCase):
+    def test_phonon_profiles_are_separate_and_do_not_vary_nemotron_context(self):
+        application=QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as d:
+            window=app.Window(d,smoke_test=True)
+            original=window.config_path()
+            window.speech.setCurrentIndex(window.speech.findData("phonon"))
+            self.assertNotEqual(original,window.config_path())
+            window.backend.setCurrentText("CPU")
+            with patch.object(app,"install",return_value={"speech_backend":"phonon_cpu","native_backend":"cpu"}) as setup, patch.object(benchmark,"run_suite",return_value={}) as run:
+                window.start_benchmark()
+                window.task.join(timeout=3)
+                application.processEvents()
+                self.assertFalse(window.task.is_alive())
+                self.assertEqual(setup.call_args.kwargs["speech"],"phonon")
+                profiles=[json.loads(Path(p).read_text()) for p in run.call_args.args[0]]
+                self.assertEqual(len(profiles),2)
+                self.assertEqual([p["targets"] for p in profiles],[[],["English"]])
+                self.assertTrue(all(p["nemotron_right_context"] is None for p in profiles))
+            window.close()
+
     def test_start_prepares_cpu_when_gpu_setup_fails_without_prompt(self):
         application=QApplication.instance() or QApplication([])
         with tempfile.TemporaryDirectory() as d:

@@ -49,6 +49,9 @@ def hardware():
 
 
 def doctor(config):
+    if config.get("speech_backend") in {"phonon_cpu"}:
+        from small_models import cpu_runtime_check
+        return {"requested": "cpu", "placement": "explicit_cpu", **cpu_runtime_check()}
     if config.get("speech_backend") != "nemo":
         return {"requested": "mlx", "placement": "not_probed"}
     binary = Path(config["native_sdk"]) / "bin" / ("nemo-speech.exe" if os.name == "nt" else "nemo-speech")
@@ -83,7 +86,7 @@ class WorkerSession:
         self.lock = threading.Lock()
         self.process = subprocess.Popen([sys.executable, "-u", str(WORKER_DIR / "worker.py")],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1"}, **hidden_process())
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "HF_HUB_OFFLINE": "1", "HF_HUB_DISABLE_TELEMETRY": "1", "DO_NOT_TRACK": "1"}, **hidden_process())
         self.readers = [threading.Thread(target=self._read, daemon=True),
                         threading.Thread(target=self._logs, daemon=True)]
         for thread in self.readers:

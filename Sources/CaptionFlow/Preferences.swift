@@ -18,6 +18,9 @@ enum CaptionFlowMode: String, Codable, CaseIterable {
     case time = "Time"
 }
 struct Preferences: Codable {
+    static let nemotronSpeechModel = "nvidia/nemotron-3.5-asr-streaming-0.6b"
+    static let reduxSpeechModel = "moondream/parakeet-redux"
+    static let phononSpeechModel = "FermionResearch/Phonon-2.5"
     static let qwen3ASRSpeechModel = "mlx-community/Qwen3-ASR-1.7B-4bit"
     static let qwen25TranslationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     static let qwen35TranslationModel = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
@@ -77,7 +80,7 @@ struct ScanResult: Sendable { var models: [LocalModel]; var warnings: [String] }
 enum ModelDiscovery {
     static func isSpeechModel(config: [String: Any]) -> Bool {
         if config["n_mels"] != nil && config["n_audio_ctx"] != nil { return true }
-        if ["voxtral_realtime", "qwen3_asr"].contains(config["model_type"] as? String ?? "") { return true }
+        if ["voxtral_realtime", "qwen3_asr", "parakeet_tdt", "phonon2", "parakeet_tdt_five_value"].contains(config["model_type"] as? String ?? "") { return true }
         if let target = config["target"] as? String, target.localizedCaseInsensitiveContains("EncDecRNNT") { return true }
         if let decoding = config["decoding"] as? [String: Any],
            ["tdt", "rnnt", "ctc"].contains(decoding["model_type"] as? String ?? ""),
@@ -105,7 +108,7 @@ enum ModelDiscovery {
                 let canonical = folder.resolvingSymlinksInPath().path
                 guard seen.insert(canonical).inserted,
                       let contents = try? fm.contentsOfDirectory(atPath: folder.path),
-                      contents.contains(where: { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") }) else { continue }
+                      contents.contains(where: { $0.hasSuffix(".safetensors") || $0.hasSuffix(".npz") || $0.hasSuffix(".bps.tar.zst") || $0 == "model.fermion" }) else { continue }
                 let kind: LocalModel.Kind
                 if isSpeechModel(config: config) { kind = .speech }
                 else if config["model_type"] != nil && contents.contains("tokenizer_config.json") { kind = .translation }

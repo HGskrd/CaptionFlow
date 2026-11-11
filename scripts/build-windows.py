@@ -62,6 +62,15 @@ def build(output, offline_models=False):
         name = f'nemo-speech-{NEMO_VERSION}-{key}.zip'
         download(f'https://github.com/NVIDIA/NeMo-Speech.cpp/releases/download/v{NEMO_VERSION}/{name}', downloads / name, NEMO_HASHES[key])
         shutil.copy2(downloads / name, data / name)
+        if backend == 'cpu':
+            # PyTorch must also load on machines without a system-wide VC++ redistributable.
+            # Reuse the verified SDK redistributables next to embedded python.exe.
+            import fnmatch
+            with zipfile.ZipFile(downloads / name) as runtime_zip:
+                for member in runtime_zip.namelist():
+                    filename = Path(member).name
+                    if any(fnmatch.fnmatch(filename.lower(), pattern) for pattern in ('msvcp140*.dll', 'vcruntime140*.dll', 'concrt140.dll', 'vcomp140.dll')):
+                        (staging / 'python' / filename).write_bytes(runtime_zip.read(member))
         suffix, digest = LLAMA_ASSETS[key]; name = f'llama-{LLAMA_TAG}-bin-{suffix}'
         download(f'https://github.com/ggml-org/llama.cpp/releases/download/{LLAMA_TAG}/{name}', downloads / name, digest)
         shutil.copy2(downloads / name, data / name)

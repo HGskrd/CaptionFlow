@@ -61,6 +61,9 @@ final class AppState: ObservableObject {
     }
     var speechModelNote: String {
         let model = preferences.whisperModel.lowercased()
+        if model.contains("nemotron") { return "Nemotron 3.5 · 0.6B · native streaming · Metal" }
+        if model.contains("redux") { return "Parakeet Redux · compressed 0.6B · 25 European languages · chunked" }
+        if model.contains("phonon") { return "Phonon 2.5 · compressed 0.6B · 25 European languages · chunked" }
         if model.contains("parakeet") { return "Parakeet · 0.6B · fast · 25 European languages" }
         if model.contains("qwen3-asr") { return "Qwen3-ASR · 1.7B · 4-bit · 30 languages and 22 Chinese dialects · snapshot live" }
         if model.contains("voxtral") { return "Voxtral Realtime · 4B · 4-bit · 13 languages · higher memory use" }

@@ -63,6 +63,9 @@ class CaptionsTest(unittest.TestCase):
                 ({"target": "nemo.collections.asr.models.EncDecRNNTBPEModel"}, "parakeet"),
                 ({"model_type": "voxtral_realtime"}, "voxtral_realtime"),
                 ({"model_type": "qwen3_asr"}, "qwen3_asr"),
+                ({"model_type": "parakeet_tdt"}, "parakeet"),
+                ({"model_type": "parakeet_tdt_five_value"}, "phonon2"),
+                ({"model_type": "phonon2"}, "phonon2"),
             ]
             for index, (config, expected) in enumerate(cases):
                 model = root / str(index)

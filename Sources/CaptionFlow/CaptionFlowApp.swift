@@ -286,7 +286,7 @@ struct InspectorView: View {
                 translationModelPicker
                 Text(state.translationModelNote).font(.caption).foregroundStyle(.secondary)
                 Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
-                Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Models must be MLX-compatible; GGUF and PyTorch-only weights are not interchangeable.").font(.caption).foregroundStyle(.secondary)
+                Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Nemotron uses its managed native runtime. Other custom folders must be MLX-compatible.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active || state.installing)
             DisclosureGroup("Audio sensitivity") {
                 Slider(value: $state.preferences.silenceThreshold, in: 0.001...0.04).accessibilityLabel("Silence threshold")
@@ -326,13 +326,16 @@ struct InspectorView: View {
     }
     private var speechModelPicker: some View {
         Picker("Speech", selection: $state.preferences.whisperModel) {
+            Text("Nemotron 3.5 · 0.6B · streaming").tag(Preferences.nemotronSpeechModel)
+            Text("Parakeet Redux · compact · chunked").tag(Preferences.reduxSpeechModel)
+            Text("Phonon 2.5 · compact · chunked").tag(Preferences.phononSpeechModel)
             Text("Whisper Small").tag("mlx-community/whisper-small-mlx")
             Text("Parakeet TDT 0.6B v3").tag("mlx-community/parakeet-tdt-0.6b-v3")
             Text("Qwen3-ASR · 1.7B · 4-bit").tag(Preferences.qwen3ASRSpeechModel)
             Text("Voxtral Realtime 4B · 4-bit").tag("mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit")
             ForEach(state.models.filter { $0.kind == .speech }) { Text("Local · \($0.name)").tag($0.path) }
             let selection = state.preferences.whisperModel
-            if !["mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", Preferences.qwen3ASRSpeechModel, "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
+            if ![Preferences.nemotronSpeechModel, Preferences.reduxSpeechModel, Preferences.phononSpeechModel, "mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", Preferences.qwen3ASRSpeechModel, "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }

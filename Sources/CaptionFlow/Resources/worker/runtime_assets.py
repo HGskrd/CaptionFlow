@@ -110,7 +110,9 @@ def platform_key():
     return f"{system}-{arch}"
 
 
-def install(root, backend, translation=True, progress=print, allow_network=True):
+def install(root, backend, translation=True, progress=print, allow_network=True, speech="nemotron"):
+    if speech not in ("nemotron", "phonon"):
+        raise ValueError("Unknown speech model: " + speech)
     root = Path(root).expanduser().resolve()
     key = f"{platform_key()}-{backend}"
     if key not in NEMO_HASHES:
@@ -121,17 +123,21 @@ def install(root, backend, translation=True, progress=print, allow_network=True)
                        root / "downloads" / name, NEMO_HASHES[key], progress, allow_network)
     sdk = extract(archive, root / "runtimes" / f"nemo-{key}")
     selected_models = {}
-    for identity in (["nemotron", "hy-mt2"] if translation else ["nemotron"]):
+    for identity in ((["nemotron"] if speech == "nemotron" else []) + (["hy-mt2"] if translation else [])):
         spec = MODELS[identity]
         path = download(f"https://huggingface.co/{spec['repo']}/resolve/{spec['revision']}/{spec['file']}",
                         root / "models" / spec["file"], spec["sha256"], progress, allow_network)
         selected_models[identity] = str(path)
-    config = {"type": "configure", "speech_backend": "nemo", "native_backend": backend,
-              "native_sdk": str(sdk), "speech_model": selected_models["nemotron"],
+    if speech != "nemotron":
+        from small_models import install_model
+        selected_models[speech] = install_model(speech, root / "models", progress, allow_network)
+    config = {"type": "configure", "speech_backend": "nemo" if speech == "nemotron" else speech + "_cpu", "native_backend": backend,
+              "native_sdk": str(sdk), "speech_model": selected_models[speech],
               "gpu": -1 if backend == "cpu" else 0, "nemotron_right_context": 3,
               "source_language": "fr", "targets": ["English"] if translation else [],
               "translation_backend": "llama", "translation_model_type": "hunyuan_v1_dense",
               "allow_downloads": False, "cache_dir": str(root / "models"), "silence_threshold": 0.008}
+    config["speech_identity"] = speech
     if translation:
         llama_key = platform_key() if platform_key() == "macos-aarch64" else key
         if llama_key not in LLAMA_ASSETS:
@@ -161,5 +167,6 @@ if __name__ == "__main__":
     parser.add_argument("--root", required=True)
     parser.add_argument("--backend", required=True, choices=["cpu", "metal", "vulkan"])
     parser.add_argument("--asr-only", action="store_true")
+    parser.add_argument("--speech", choices=["nemotron", "phonon"], default="nemotron")
     args = parser.parse_args()
-    install(args.root, args.backend, not args.asr_only)
+    install(args.root, args.backend, not args.asr_only, speech=args.speech)

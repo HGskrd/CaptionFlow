@@ -42,6 +42,18 @@ final class ModelDiscoveryTests: XCTestCase {
         let result = ModelDiscovery.scan(roots: [root.path])
         XCTAssertEqual(Set(result.models.filter { $0.kind == .speech }.map(\.name)), ["parakeet", "voxtral", "qwen-asr"])
     }
+    func testCompactSpeechArchivesAreDiscoverable() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: root) }
+        for (name, type, weights) in [("redux", "parakeet_tdt", "model.safetensors"), ("phonon", "parakeet_tdt_five_value", "phonon-2.5.bps.tar.zst")] {
+            let folder = root.appendingPathComponent(name)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try JSONSerialization.data(withJSONObject: ["model_type": type]).write(to: folder.appendingPathComponent("config.json"))
+            try Data().write(to: folder.appendingPathComponent(weights))
+        }
+        XCTAssertEqual(Set(ModelDiscovery.scan(roots: [root.path]).models.map(\.name)), ["redux", "phonon"])
+    }
+
     func testPreferencesRoundTrip() throws {
         var prefs = Preferences()
         prefs.targets = ["French", "Japanese"]

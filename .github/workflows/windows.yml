@@ -34,6 +34,7 @@ jobs:
             dist/CaptionFlow-Setup.exe
             dist/CaptionFlow-Windows-x64.zip
   test:
+    timeout-minutes: 15
     needs: build
     runs-on: windows-latest
     steps:
@@ -53,6 +54,17 @@ jobs:
           Copy-Item "$install\portable\caption_audio.dll" portable\caption_audio.dll
           & "$install\python\python.exe" -m unittest discover -s tests_portable -v
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - name: Phonon offline inference and live replay
+        shell: pwsh
+        run: |
+          $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
+          & "$install\python\python.exe" scripts/test_small_models.py --cache "$env:TEMP\CaptionFlow-models" --backend cpu --download --output dist/phonon-windows.json
+          if ($LASTEXITCODE -ne 0) { throw 'Real-model test failed' }
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: Windows-model-evidence
+          path: dist/phonon-windows.json
   mac:
     runs-on: macos-15
     steps:

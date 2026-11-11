@@ -1,5 +1,6 @@
 """Memory-only caption presentation. No model work or network access."""
 from dataclasses import dataclass
+from transcript_scroll import Span, anchor_at, position_for
 import json
 import os
 import re
@@ -7,7 +8,7 @@ import time
 
 from PySide6.QtCore import Qt, QTimer, QRectF, QPointF
 from PySide6.QtGui import QColor, QFontMetricsF, QPainter, QTextCharFormat, QTextLayout, QTextOption
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QPushButton, QApplication
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QPlainTextEdit, QPushButton, QApplication, QLabel
 
 MODES = ("Rolling lines", "Phrase blocks", "Transcript")
 DEFAULTS = {"original": MODES[0], "translation": MODES[1], "lines": 3, "clear_after": 0, "animation": True}
@@ -224,29 +225,50 @@ class CaptionPane(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.document = CaptionDocument(); self.mode = MODES[0]; self.follows_live = True
+        self.scroll_link = None; self.local_anchor = None; self.spans = []
+        self.updating = False; self.layout_pending = False
+        self.layout_timer = QTimer(self); self.layout_timer.setSingleShot(True); self.layout_timer.timeout.connect(self.refresh)
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
         self.canvas = RollingCanvas(); layout.addWidget(self.canvas)
         self.transcript = QPlainTextEdit(); self.transcript.setReadOnly(True)
         self.transcript.setFont(self.canvas.font()); self.transcript.setFrameShape(QPlainTextEdit.NoFrame)
-        self.transcript.setMaximumBlockCount(400)
         self.transcript.viewport().installEventFilter(self)
         self.transcript.installEventFilter(self)
         self.transcript.verticalScrollBar().installEventFilter(self)
         self.transcript.verticalScrollBar().sliderPressed.connect(self.pause_following)
+        self.transcript.verticalScrollBar().valueChanged.connect(self.scrolled)
         layout.addWidget(self.transcript)
+        self.sync_hint = QLabel("This passage is not available yet."); self.sync_hint.setWordWrap(True)
+        self.sync_hint.hide(); layout.addWidget(self.sync_hint)
         self.back = QPushButton("Back to live"); self.back.clicked.connect(self.resume_following); layout.addWidget(self.back, alignment=Qt.AlignRight)
         self.configure(DEFAULTS, "original")
 
     def eventFilter(self, obj, event):
         from PySide6.QtCore import QEvent
-        if event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress): self.pause_following()
+        if event.type() == QEvent.Resize:
+            self.layout_pending = True; self.layout_timer.start(0)
+        elif event.type() in (QEvent.Wheel, QEvent.MouseButtonPress, QEvent.KeyPress): self.pause_following()
         return super().eventFilter(obj, event)
 
+    @property
+    def linked(self): return self.scroll_link is not None and self.scroll_link.enabled
+
+    def scroll_anchor(self):
+        return anchor_at(self.transcript.verticalScrollBar().value(), self.spans)
+
+    def scrolled(self, value):
+        if self.updating or self.layout_pending or self.mode != "Transcript": return
+        if self.scroll_link and self.scroll_link.applying: return
+        self.pause_following()
+
     def pause_following(self):
-        self.follows_live = False; self.back.setVisible(self.mode == "Transcript")
+        if self.mode != "Transcript": return
+        if self.linked: self.scroll_link.pause(self); return
+        self.follows_live = False; self.local_anchor = self.scroll_anchor(); self.update_follow_button()
 
     def resume_following(self):
-        self.follows_live = True; self.refresh()
+        if self.linked: self.scroll_link.resume(); return
+        self.follows_live = True; self.local_anchor = None; self.refresh()
 
     def configure(self, settings, lane):
         self.mode = settings[lane]; self.canvas.mode = self.mode
@@ -256,27 +278,74 @@ class CaptionPane(QWidget):
         self.refresh()
 
     def reset(self):
-        self.document = CaptionDocument(); self.follows_live = True; self.refresh()
+        self.document = CaptionDocument(); self.follows_live = True; self.local_anchor = None; self.refresh()
 
     def receive(self, event, translated=False):
         self.document.update(event["text"], event["caption_id"], event["revision"], event.get("final", False), hold_revisions=translated)
         self.refresh()
+        if self.linked: self.scroll_link.refresh_peers(self)
+
+    def update_follow_button(self):
+        self.back.setVisible(self.mode == "Transcript" and not self.linked)
+        self.back.setText("Live" if self.follows_live else "Back to live")
+        self.back.setEnabled(not self.follows_live)
 
     def refresh(self):
-        tokens = self.document.tokens(self.mode)
-        self.back.setVisible(self.mode == "Transcript" and not self.follows_live)
-        if self.mode != "Transcript": self.canvas.set_tokens(tokens); return
-        text = "".join(token.text for token in tokens)
-        scrollbar = self.transcript.verticalScrollBar(); position = scrollbar.value()
-        if text != self.transcript.toPlainText():
-            from PySide6.QtGui import QTextCursor
-            old = self.transcript.toPlainText()
-            # Apply only the changed tail, preserving selection and scrollback.
-            prefix = 0
-            for left, right in zip(old, text):
-                if left != right: break
-                prefix += 1
-            cursor = QTextCursor(self.transcript.document())
-            cursor.setPosition(len(old[:prefix].encode("utf-16-le"))//2)
-            cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor); cursor.insertText(text[prefix:])
-        scrollbar.setValue(scrollbar.maximum() if self.follows_live else position)
+        self.layout_pending = False
+        self.update_follow_button()
+        if not self.linked: self.sync_hint.hide()
+        if self.mode != "Transcript": self.canvas.set_tokens(self.document.tokens(self.mode)); return
+        self.updating = True
+        try:
+            # Each utterance owns a range even when it contains internal newlines.
+            segments = [(entry["id"], "".join(word.text for word in entry["tokens"]).strip()) for entry in self.document.entries]
+            text = "\n".join(text for _, text in segments)
+            if text != self.transcript.toPlainText():
+                from PySide6.QtGui import QTextCursor
+                old = self.transcript.toPlainText()
+                prefix = 0
+                for left, right in zip(old, text):
+                    if left != right: break
+                    prefix += 1
+                cursor = QTextCursor(self.transcript.document())
+                cursor.setPosition(len(old[:prefix].encode("utf-16-le"))//2)
+                cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor); cursor.insertText(text[prefix:])
+            self.update_spans(segments)
+            self.restore_position()
+        finally: self.updating = False
+
+    def update_spans(self, segments):
+        document = self.transcript.document(); layout = document.documentLayout()
+        rows = {}; row = 0; block = document.begin()
+        while block.isValid():
+            layout.blockBoundingRect(block)  # Materialize wrapping before counting visual rows.
+            rows[block.blockNumber()] = row
+            row += max(1, block.layout().lineCount()); block = block.next()
+        spans = []; offset = 0
+        for identity, text in segments:
+            length = len(text.encode("utf-16-le"))//2
+            if length:
+                first = document.findBlock(offset); last = document.findBlock(offset+length-1)
+                if first.isValid() and last.isValid():
+                    first_line = first.layout().lineForTextPosition(offset-first.position())
+                    last_line = last.layout().lineForTextPosition(offset+length-1-last.position())
+                    start = rows[first.blockNumber()] + max(0, first_line.lineNumber())
+                    end = rows[last.blockNumber()] + max(0, last_line.lineNumber()) + 1
+                    spans.append(Span(identity, start, max(1, end-start)))
+            offset += length + 1
+        self.spans = spans
+
+    def restore_position(self):
+        if self.mode != "Transcript": return
+        previous = self.updating; self.updating = True
+        try:
+            scrollbar = self.transcript.verticalScrollBar()
+            follows_live = self.scroll_link.follows_live if self.linked else self.follows_live
+            anchor = self.scroll_link.anchor if self.linked else self.local_anchor
+            timeline = self.scroll_link.timeline if self.linked else [entry["id"] for entry in self.document.entries]
+            position = position_for(anchor, self.spans, timeline)
+            missing = self.linked and not follows_live and anchor is not None and anchor.caption_id in timeline and not any(span.caption_id == anchor.caption_id for span in self.spans)
+            self.sync_hint.setVisible(missing)
+            if follows_live: scrollbar.setValue(scrollbar.maximum())
+            elif position is not None: scrollbar.setValue(int(position))
+        finally: self.updating = previous

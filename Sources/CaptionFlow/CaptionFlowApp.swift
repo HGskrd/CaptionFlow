@@ -91,6 +91,11 @@ struct CommunityControls: View {
 struct SubtitleCanvas: View {
     @EnvironmentObject private var state: AppState
     var fullScreen = false
+    @State private var transcriptScroll = TranscriptScrollPosition()
+    private var linkedTranscripts: Bool {
+        prefs.displayMode == .both && !prefs.targets.isEmpty &&
+        prefs.effectiveCaptionPresentation == .transcript && prefs.effectiveTranslationPresentation == .transcript
+    }
     private var prefs: Preferences { state.preferences }
     var body: some View {
         GeometryReader { geometry in
@@ -110,8 +115,7 @@ struct SubtitleCanvas: View {
                         .foregroundStyle(prefs.foreground.color.opacity(0.7)).padding(40)
                     }
                 } else {
-                    let laneCount = max(1, (prefs.displayMode != .translated ? 1 : 0) + (prefs.displayMode != .original ? prefs.targets.count : 0))
-                    let laneHeight = max(prefs.fontSize * 1.5, (geometry.size.height - 64 - Double(laneCount - 1) * 32) / Double(laneCount))
+                    let laneHeight = captionHeight(in: geometry.size)
                     ScrollView {
                         VStack(spacing: 32) {
                             if prefs.displayMode != .translated {
@@ -122,6 +126,7 @@ struct SubtitleCanvas: View {
                                     caption(state.translationTokens[language] ?? [], document: state.translationDocuments[language] ?? LiveCaptionDocument(), label: language, mode: prefs.effectiveTranslationPresentation).frame(height: laneHeight)
                                 }
                             }
+                            if linkedTranscripts { transcriptControls }
                         }
                         .padding(.horizontal, max(32, geometry.size.width * 0.065))
                         .padding(.vertical, 32)
@@ -132,6 +137,22 @@ struct SubtitleCanvas: View {
             }
             .foregroundStyle(prefs.foreground.color)
         }
+        .onChange(of: linkedTranscripts) { _, _ in transcriptScroll = TranscriptScrollPosition() }
+        .onChange(of: state.originalDocument.sessionID) { _, _ in transcriptScroll = TranscriptScrollPosition() }
+    }
+    private func captionHeight(in size: CGSize) -> CGFloat {
+        let count = max(1, (prefs.displayMode != .translated ? 1 : 0) + (prefs.displayMode != .original ? prefs.targets.count : 0))
+        let spacing = 64.0 + Double(count - 1) * 32.0 + (linkedTranscripts ? 64.0 : 0.0)
+        return CGFloat(max(prefs.fontSize * 1.5, (Double(size.height) - spacing) / Double(count)))
+    }
+    private var transcriptControls: some View {
+        HStack {
+            Text("Linked scrolling").font(.caption).foregroundStyle(prefs.foreground.color.opacity(0.7))
+            Spacer()
+            Button(transcriptScroll.followsLive ? "Live" : "Back to live", systemImage: "arrow.down.to.line") {
+                transcriptScroll = TranscriptScrollPosition()
+            }.disabled(transcriptScroll.followsLive).controlSize(.small)
+        }
     }
     @ViewBuilder private func caption(_ tokens: [CaptionToken], document: LiveCaptionDocument, label: String, mode: CaptionPresentation) -> some View {
         if mode == .classic {
@@ -139,7 +160,9 @@ struct SubtitleCanvas: View {
         } else {
             LiveCaptionView(tokens: document.visibleTokens(for: mode), label: label, mode: mode,
                             typeface: prefs.typeface, fontSize: prefs.fontSize, foreground: prefs.foreground.color,
-                            visibleLines: prefs.effectiveCaptionVisibleLines, gentleAnimation: prefs.effectiveCaptionGentleAnimation)
+                            visibleLines: prefs.effectiveCaptionVisibleLines, gentleAnimation: prefs.effectiveCaptionGentleAnimation,
+                            segments: document.transcriptSegments, timeline: state.originalDocument.utterances.map(\.id),
+                            linkedScroll: linkedTranscripts ? $transcriptScroll : nil)
         }
     }
     private var hasVisibleCaptions: Bool {

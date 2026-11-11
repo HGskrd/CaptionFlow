@@ -3,6 +3,7 @@ import Foundation
 /// Bounded, memory-only scrollback. Model revisions replace an utterance instead
 /// of appending duplicates. Presentation never queues words behind the decoder.
 struct LiveCaptionDocument {
+    let sessionID = UUID()
     struct Utterance {
         var id: String
         var revision: Int

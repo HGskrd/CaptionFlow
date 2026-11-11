@@ -18,6 +18,7 @@ from common import ROOT, WorkerSession, doctor, hardware, redact
 from runtime_assets import install
 from feedback import Feedback, VERSION
 from caption_display import CaptionPane, MODES, load_settings
+from transcript_scroll import TranscriptScrollLink
 
 
 class Signals(QObject):
@@ -85,6 +86,15 @@ class Window(QMainWindow):
         self.original = CaptionPane(); self.translated = CaptionPane()
         layout.addWidget(self.original, 1); layout.addWidget(self.translated, 1)
         self.original.configure(self.display_settings, "original"); self.translated.configure(self.display_settings, "translation")
+        self.transcript_controls = QWidget(); linked_layout = QHBoxLayout(self.transcript_controls)
+        linked_layout.setContentsMargins(0, 0, 0, 0)
+        linked_layout.addWidget(QLabel("Linked scrolling")); linked_layout.addStretch()
+        self.transcript_live = QPushButton("Live"); linked_layout.addWidget(self.transcript_live)
+        layout.addWidget(self.transcript_controls)
+        self.transcript_link = TranscriptScrollLink([self.original, self.translated], self.update_transcript_controls)
+        self.transcript_live.clicked.connect(self.transcript_link.resume)
+        self.target.currentIndexChanged.connect(self.configure_transcript_link)
+        self.configure_transcript_link()
         self.clear_timer = QTimer(self); self.clear_timer.setInterval(250); self.clear_timer.timeout.connect(self.clear_idle_captions)
         if self.display_settings["clear_after"]: self.clear_timer.start()
         bench = QHBoxLayout(); layout.addLayout(bench)
@@ -117,6 +127,16 @@ class Window(QMainWindow):
         self.original.configure(self.display_settings, "original"); self.translated.configure(self.display_settings, "translation")
         if self.display_settings["clear_after"]: self.clear_timer.start()
         else: self.clear_timer.stop()
+        self.configure_transcript_link()
+
+    def configure_transcript_link(self):
+        self.transcript_link.configure(self.original.mode == "Transcript" and self.translated.mode == "Transcript" and self.target.currentText() != "Off")
+        self.update_transcript_controls()
+
+    def update_transcript_controls(self):
+        self.transcript_controls.setVisible(self.transcript_link.enabled)
+        self.transcript_live.setText("Live" if self.transcript_link.follows_live else "Back to live")
+        self.transcript_live.setEnabled(not self.transcript_link.follows_live)
 
     def clear_idle_captions(self):
         for pane in (self.original, self.translated):
@@ -243,7 +263,7 @@ class Window(QMainWindow):
         if mode != "microphone" and os.name != "nt":
             self.status("Use the native macOS app for Mac system audio capture."); return
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
-        self.original.reset(); self.translated.reset(); self.last_speech = float("-inf")
+        self.original.reset(); self.translated.reset(); self.transcript_link.resume(); self.last_speech = float("-inf")
         echo = self.echo.isChecked()
         self.launch(lambda: self.capture(config, mode, echo))
 

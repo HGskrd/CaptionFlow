@@ -18,6 +18,35 @@ sys.path.insert(0, str(ROOT / 'Sources/CaptionFlow/Resources/worker'))
 from runtime_assets import NEMO_HASHES, NEMO_VERSION, LLAMA_ASSETS, LLAMA_TAG, download, sha256
 
 
+def verify_windows_dependencies(wheels):
+    # pip --platform still evaluates dependency markers against the build host.
+    # Use the pinned closure, then validate it against Windows rather than pulling
+    # Linux CUDA dependencies from otherwise CPU-only wheel metadata.
+    from email.parser import BytesParser
+    from pip._vendor.packaging.markers import default_environment
+    from pip._vendor.packaging.requirements import Requirement
+    from pip._vendor.packaging.utils import canonicalize_name
+    metadata = []
+    for wheel in wheels.glob('*.whl'):
+        with zipfile.ZipFile(wheel) as archive:
+            name = next(n for n in archive.namelist() if n.endswith('.dist-info/METADATA'))
+            metadata.append(BytesParser().parsebytes(archive.read(name)))
+    versions = {canonicalize_name(m['Name']): m['Version'] for m in metadata}
+    environment = {**default_environment(), 'sys_platform': 'win32', 'os_name': 'nt',
+                   'platform_system': 'Windows', 'platform_machine': 'AMD64',
+                   'python_version': '3.14', 'python_full_version': '3.14.10', 'extra': ''}
+    for model in metadata:
+        for raw in model.get_all('Requires-Dist', []):
+            requirement = Requirement(raw)
+            if requirement.marker and not requirement.marker.evaluate(environment):
+                continue
+            installed = versions.get(canonicalize_name(requirement.name))
+            if installed is None or installed not in requirement.specifier:
+                raise ValueError(f"Windows closure: {model['Name']} needs {raw}; found {installed}")
+    if any(name.startswith(('nvidia-', 'cuda-')) for name in versions):
+        raise ValueError('CUDA dependency in Windows payload')
+
+
 def build(output, offline_models=False):
     staging = ROOT / 'dist/windows-staging/CaptionFlow'
     downloads = ROOT / 'dist/windows-downloads'; downloads.mkdir(parents=True, exist_ok=True)
@@ -42,8 +71,9 @@ def build(output, offline_models=False):
     if wheels.exists(): shutil.rmtree(wheels)
     wheels.mkdir()
     subprocess.run([sys.executable, '-m', 'pip', 'download', '-r', str(ROOT / 'portable/requirements.txt'),
-                    '--dest', str(wheels), '--only-binary=:all:', '--platform', 'win_amd64',
+                    '--dest', str(wheels), '--no-deps', '--only-binary=:all:', '--platform', 'win_amd64',
                     '--python-version', '3.14', '--implementation', 'cp'], check=True)
+    verify_windows_dependencies(wheels)
     packages = staging / 'python/Lib/site-packages'; packages.mkdir(parents=True)
     for wheel in sorted(wheels.glob('*.whl')):
         digest = sha256(wheel)

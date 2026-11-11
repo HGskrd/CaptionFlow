@@ -49,5 +49,6 @@
   "jinja2-3.1.6-py3-none-any.whl": "85ece4451f492d0c13c5dd7c13a64681a86afae63a5f347908daf103ce6d2f67",
   "markupsafe-3.0.4-cp314-cp314-win_amd64.whl": "c1bc67752d5f21013cfe430df4062441714eab79f65a6a05e01505957e9c35fe",
   "zstandard-0.25.0-cp314-cp314-win_amd64.whl": "c19bcdd826e95671065f8692b5a4aa95c52dc7a02a4c5a0cac46deb879a017a2",
-  "transformers-5.22.2-py3-none-any.whl": "829c2820aff91730b8ec45a4b8ff4be07f586a140b68a9073998b36fa35297dc"
+  "transformers-5.22.2-py3-none-any.whl": "829c2820aff91730b8ec45a4b8ff4be07f586a140b68a9073998b36fa35297dc",
+  "colorama-0.4.6-py2.py3-none-any.whl": "4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"
 }

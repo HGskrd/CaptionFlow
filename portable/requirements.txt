@@ -53,3 +53,4 @@ typer==0.29.1
 typing_extensions==4.16.0
 typing-inspection==0.4.5
 zstandard==0.25.0
+colorama==0.4.6

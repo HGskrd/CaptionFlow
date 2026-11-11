@@ -1,5 +1,6 @@
 """CaptionFlow opt-in ingestion. Bind loopback behind the existing HTTPS tunnel."""
 import argparse
+from contextlib import contextmanager
 import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -19,10 +20,15 @@ RATE = {}
 FORBIDDEN = {"audio", "pcm", "transcript", "text", "hostname", "serial", "username", "token", "diagnostic_tail", "error"}
 
 
+@contextmanager
 def connection():
     conn = sqlite3.connect(STATE / "reports.sqlite", timeout=10)
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+    try:
+        conn.execute("PRAGMA foreign_keys=ON")
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def initialize():

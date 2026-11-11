@@ -1,0 +1,42 @@
+name: Windows installer
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.14'
+      - run: sudo apt-get update -qq && sudo apt-get install -y nsis
+      - run: python scripts/build-windows.py
+      - run: makensis -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup.exe" packaging/windows.nsi
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: CaptionFlow-Windows
+          path: dist/CaptionFlow-Setup.exe
+  test:
+    needs: build
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: CaptionFlow-Windows
+          path: dist
+      - name: Install and launch
+        shell: pwsh
+        run: |
+          $process = Start-Process -FilePath "$PWD\dist\CaptionFlow-Setup.exe" -ArgumentList '/S' -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
+          $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
+          & "$install\python\python.exe" "$install\portable\launch.py" --smoke-test --data "$env:TEMP\CaptionFlow-smoke"
+          if ($LASTEXITCODE -ne 0) { Get-Content "$env:TEMP\CaptionFlow-smoke\launcher.log"; throw 'Launch failed' }
+          & "$install\python\python.exe" -m unittest discover -s tests_portable -v
+          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }

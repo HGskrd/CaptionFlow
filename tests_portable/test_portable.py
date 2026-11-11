@@ -60,7 +60,7 @@ class MetricsTests(unittest.TestCase):
                 stop.clear()
                 benchmark._run_suite([config],fixture,output,.01,1,stop,lambda _:None)
             self.assertEqual(calls,['throughput','realtime'])
-            with sqlite3.connect(next(output.glob('*/journal.sqlite'))) as conn:
+            with contextlib.closing(sqlite3.connect(next(output.glob('*/journal.sqlite')))) as conn:
                 self.assertEqual(conn.execute('SELECT count(*) FROM trials').fetchone()[0],2)
 
 

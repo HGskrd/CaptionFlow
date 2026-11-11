@@ -34,7 +34,7 @@ def main():
     socket.socket.connect = blocked
     results = []
     from benchmark import trial, word_error
-    reference = json.loads((ROOT / "docs/fixtures/fr-synthetic.json").read_text())["reference"]
+    reference = json.loads((ROOT / "docs/fixtures/fr-synthetic.json").read_text(encoding="utf-8"))["reference"]
     try:
         for name in names:
             started = time.monotonic()

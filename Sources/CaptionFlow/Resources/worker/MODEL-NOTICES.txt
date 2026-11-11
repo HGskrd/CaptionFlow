@@ -1,0 +1,21 @@
+Compact speech model attribution
+
+Parakeet Redux by Moondream:
+https://huggingface.co/moondream/parakeet-redux
+Phonon 2.5 by Fermion Research:
+https://huggingface.co/FermionResearch/Phonon-2.5
+
+Both are compressed derivatives of NVIDIA Parakeet TDT 0.6B v3:
+https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+Copyright NVIDIA Corporation and the respective derivative authors.
+Model weights are licensed under Creative Commons Attribution 4.0 International:
+https://creativecommons.org/licenses/by/4.0/
+CaptionFlow does not retrain these weights. MLX may repack the original codes.
+
+Nemotron 3.5 ASR Streaming 0.6B by NVIDIA:
+https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
+CaptionFlow uses the published Q8_0 GGUF checkpoint with NeMo-Speech.cpp.
+See the original model card for its licence and attribution.
+
+These checkpoints are downloaded separately after consent. Runtime licences
+are included with their Python wheels and native release archives.

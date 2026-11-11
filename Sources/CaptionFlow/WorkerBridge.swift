@@ -50,6 +50,7 @@ final class WorkerBridge: @unchecked Sendable {
         let p = Process(); p.executableURL = Self.python
         p.arguments = ["-u", Self.resources.appendingPathComponent("worker.py").path]
         var environment = ProcessInfo.processInfo.environment
+        environment["PYTHONIOENCODING"] = "utf-8"
         environment["PYTHONUNBUFFERED"] = "1"; environment["TOKENIZERS_PARALLELISM"] = "false"
         environment["PYTHONDONTWRITEBYTECODE"] = "1" // Keep the signed resource directory immutable.
         environment["HF_HUB_DISABLE_TELEMETRY"] = "1"

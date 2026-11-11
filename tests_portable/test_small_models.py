@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -12,6 +13,32 @@ from worker import run_snapshot_speech
 
 
 class SmallModelTests(unittest.TestCase):
+    def test_worker_protocol_is_utf8_under_a_legacy_console_encoding(self):
+        import common
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root)
+            (path / "worker.py").write_text(
+                'import json,sys\n'
+                'config=json.loads(sys.stdin.readline())\n'
+                'print(json.dumps({"type":"ready"}),flush=True)\n'
+                'print(json.dumps({"type":"source","text":config["sample"]},ensure_ascii=False),flush=True)\n'
+                'sys.stdin.readline()\n', encoding="utf-8")
+            received = []
+            ready = threading.Event()
+            def event(timestamp, value):
+                if value["type"] == "source":
+                    received.append(value["text"])
+                    ready.set()
+            with patch.object(common, "WORKER_DIR", path), patch.dict("os.environ", {"PYTHONIOENCODING": "ascii"}):
+                session = common.WorkerSession({"sample": "Français · 日本語 · العربية"}, event)
+                try:
+                    session.ready(timeout=5)
+                    self.assertTrue(ready.wait(2))
+                    self.assertEqual(received, ["Français · 日本語 · العربية"])
+                    session.stop()
+                finally:
+                    session.close()
+
     def test_missing_checkpoint_never_connects_without_consent(self):
         with tempfile.TemporaryDirectory() as root, patch("urllib.request.urlopen") as network:
             for model in ("redux", "phonon"):

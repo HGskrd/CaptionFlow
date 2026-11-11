@@ -12,7 +12,7 @@ cp native/CaptionAudio/vendor/COPYING "$APP/Contents/Resources/SpeexDSP-LICENSE.
 rm -rf "$APP/CaptionFlow_CaptionFlow.bundle"
 rm -rf "$APP/Contents/Resources/worker"
 mkdir -p "$APP/Contents/Resources/worker"
-cp Sources/CaptionFlow/Resources/worker/*.py Sources/CaptionFlow/Resources/worker/requirements.txt "$APP/Contents/Resources/worker/"
+cp Sources/CaptionFlow/Resources/worker/*.py Sources/CaptionFlow/Resources/worker/*.txt "$APP/Contents/Resources/worker/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

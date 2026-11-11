@@ -261,10 +261,20 @@ class CaptionPane(QWidget):
         if self.scroll_link and self.scroll_link.applying: return
         self.pause_following()
 
+    def settle_pending_layout(self):
+        # Process a deferred resize before interpreting the next user gesture.
+        # Otherwise its scrollbar change is mistaken for layout movement.
+        if self.layout_pending:
+            self.layout_timer.stop()
+            self.refresh()
+
     def pause_following(self):
         if self.mode != "Transcript": return
-        if self.linked: self.scroll_link.pause(self); return
-        self.follows_live = False; self.local_anchor = self.scroll_anchor(); self.update_follow_button()
+        self.settle_pending_layout()
+        if self.linked: self.scroll_link.pause(self)
+        else:
+            self.follows_live = False; self.local_anchor = self.scroll_anchor(); self.update_follow_button()
+        self.settle_pending_layout()
 
     def resume_following(self):
         if self.linked: self.scroll_link.resume(); return

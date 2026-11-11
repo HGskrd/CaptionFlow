@@ -79,6 +79,20 @@ class TranscriptScrollTests(unittest.TestCase):
         self.assertEqual(source.scroll_anchor().caption_id, '14')
         self.assertEqual(translation.scroll_anchor().caption_id, '14')
 
+    def test_user_scroll_wins_over_pending_resize(self):
+        for enabled in (False, True):
+            with self.subTest(linked=enabled):
+                source, translation, link = self.panes()
+                link.configure(enabled)
+                source.resize(390, 210)
+                self.assertTrue(source.layout_pending)
+                source.pause_following()
+                source.transcript.verticalScrollBar().setValue(0)
+                source.receive({'text': 'A new live sentence.', 'caption_id': '30', 'revision': 30, 'final': True})
+                self.assertEqual(source.transcript.verticalScrollBar().value(), 0)
+                self.application.processEvents()
+                self.assertEqual(source.scroll_anchor().caption_id, '0')
+
     def test_single_transcript_stays_independent(self):
         source, translation, link = self.panes()
         translation.configure(DEFAULTS, 'translation'); link.configure(False)

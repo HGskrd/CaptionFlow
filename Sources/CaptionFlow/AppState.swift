@@ -8,6 +8,13 @@ final class AppState: ObservableObject {
     @Published var preferences = Preferences.load() {
         didSet {
             preferences.save()
+            if oldValue.effectiveCaptionClearAfter != preferences.effectiveCaptionClearAfter {
+                if preferences.effectiveCaptionClearAfter == 0 {
+                    originalDocument.restore()
+                    for language in translationDocuments.keys { translationDocuments[language]?.restore() }
+                }
+                startLiveClearTimer()
+            }
             if oldValue.effectiveCaptionFlow != preferences.effectiveCaptionFlow ||
                 oldValue.effectiveCaptionWordLimit != preferences.effectiveCaptionWordLimit ||
                 oldValue.effectiveCaptionTimeLimit != preferences.effectiveCaptionTimeLimit {
@@ -28,6 +35,11 @@ final class AppState: ObservableObject {
     @Published var scanMessage = ""
     @Published var original = ""
     @Published var translations: [String: String] = [:]
+    @Published var originalDocument = LiveCaptionDocument()
+    @Published var translationDocuments: [String: LiveCaptionDocument] = [:]
+    private var lastSpeech = Date.distantPast
+    private var previewTask: Task<Void, Never>?
+    private var liveClearTask: Task<Void, Never>?
     @Published var originalTokens: [CaptionToken] = []
     @Published var translationTokens: [String: [CaptionToken]] = [:]
     @Published var detectedLanguage = ""
@@ -112,6 +124,8 @@ final class AppState: ObservableObject {
             error = "Choose at least one translation language, or display Original only."; return
         }
         resetPlayback()
+        originalDocument = LiveCaptionDocument(); translationDocuments = [:]
+        lastSpeech = .distantPast
         error = nil; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]; preview = false; cachedTokens = 0; revision = -1
         busy = true; phase = "Loading local models…"; session = UUID()
         let id = session; let bridge = WorkerBridge(); worker = bridge
@@ -144,7 +158,12 @@ final class AppState: ObservableObject {
             let id = session; let bridge = worker
             capture.onAudio = { [weak self, weak bridge] data, level in
                 bridge?.sendAudio(data)
-                Task { @MainActor in if self?.session == id { self?.level = level } }
+                Task { @MainActor in
+                    if let self, self.session == id {
+                        self.level = level
+                        if Double(level) >= self.preferences.silenceThreshold { self.lastSpeech = Date() }
+                    }
+                }
             }
             capture.onError = { [weak self] message in Task { @MainActor in if self?.session == id { self?.fail(message) } } }
             let source = preferences.source
@@ -165,6 +184,9 @@ final class AppState: ObservableObject {
             let incomingCaptionID = event["caption_id"] as? String ?? "utterance"
             if incomingCaptionID != captionID { originalPacer.reset() }
             captionID = incomingCaptionID
+            originalDocument.update(event["text"] as? String ?? "", id: captionID,
+                                    revision: next, final: event["final"] as? Bool ?? false)
+            startLiveClearTimer()
             if let correction = originalStream.update(event["text"] as? String ?? "", id: captionID,
                                                       allowCorrections: event["revisable"] as? Bool ?? false) {
                 originalRetention.reconcile(correction, preservingWindow: true)
@@ -185,6 +207,10 @@ final class AppState: ObservableObject {
                   let language = event["language"] as? String else { return }
             let eventCaptionID = event["caption_id"] as? String ?? captionID
             guard eventCaptionID == captionID else { return }
+            translationDocuments[language, default: LiveCaptionDocument()].update(
+                event["text"] as? String ?? "", id: eventCaptionID, revision: translationRevision,
+                final: event["final"] as? Bool ?? false, holdRevisions: true)
+            startLiveClearTimer()
             if translationStreams[language] == nil { translationPacers[language] = CaptionPacer() }
             let reconciliation = translationStreams[language, default: RevisableCaption()].update(
                 event["text"] as? String ?? "", id: eventCaptionID, generation: translationRevision,
@@ -210,8 +236,10 @@ final class AppState: ObservableObject {
         }
     }
     private func resetPlayback() {
+        previewTask?.cancel(); previewTask = nil
         playbackTask?.cancel(); playbackTask = nil
         expirationTask?.cancel(); expirationTask = nil
+        liveClearTask?.cancel(); liveClearTask = nil
         originalStream = ProgressiveCaption(); translationStreams = [:]; captionID = ""
         originalRetention = CaptionRetentionBuffer(); translationRetentions = [:]
         originalPacer.reset(); translationPacers = [:]
@@ -242,6 +270,8 @@ final class AppState: ObservableObject {
                 for language in self.translationStreams.keys where self.translationStreams[language]?.hasPending == true {
                     delays.append(self.translationPacers[language]?.milliseconds ?? 180)
                 }
+                let hasClassic = self.preferences.effectiveCaptionPresentation == .classic || self.preferences.effectiveTranslationPresentation == .classic
+                if !hasClassic { continue }
                 let delay = Int((delays.max() ?? 180).rounded())
                 do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             }
@@ -272,7 +302,31 @@ final class AppState: ObservableObject {
         }
         startExpirationTimerIfNeeded()
     }
+    private func startLiveClearTimer() {
+        liveClearTask?.cancel(); liveClearTask = nil
+        guard preferences.effectiveCaptionClearAfter > 0 else { return }
+        liveClearTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                guard let self else { return }
+                let seconds = self.preferences.effectiveCaptionClearAfter
+                var original = self.originalDocument
+                original.clearIfIdle(seconds: seconds, lastSpeech: self.lastSpeech)
+                if original.cleared != self.originalDocument.cleared { self.originalDocument = original }
+                for language in self.translationDocuments.keys {
+                    var document = self.translationDocuments[language]!
+                    document.clearIfIdle(seconds: seconds, lastSpeech: self.lastSpeech)
+                    if document.cleared != self.translationDocuments[language]!.cleared {
+                        self.translationDocuments[language] = document
+                    }
+                }
+                if self.originalDocument.cleared && self.translationDocuments.values.allSatisfy(\.cleared) { break }
+            }
+            self?.liveClearTask = nil
+        }
+    }
     private func startExpirationTimerIfNeeded() {
+        guard preferences.effectiveCaptionPresentation == .classic || preferences.effectiveTranslationPresentation == .classic else { return }
         guard preferences.effectiveCaptionFlow == .time, expirationTask == nil,
               !originalRetention.isEmpty || translationRetentions.values.contains(where: { !$0.isEmpty }) else { return }
         expirationTask = Task { [weak self] in
@@ -321,6 +375,7 @@ final class AppState: ObservableObject {
     }
     func stop() {
         resetPlayback()
+        startLiveClearTimer()
         session = UUID(); captureTask?.cancel(); captureTask = nil
         worker?.stop(); worker = nil
         let oldAudio = audio; audio = nil
@@ -331,13 +386,37 @@ final class AppState: ObservableObject {
         guard !active else { return }
         resetPlayback()
         preview = true; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]
-        let id = UUID().uuidString
-        originalStream.update("A little more understanding, one sentence at a time.", id: id)
-        let samples = ["English": "A little more understanding, one sentence at a time.", "French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]
-        for (language, text) in samples {
-            _ = translationStreams[language, default: RevisableCaption()].update(text, id: id, generation: 0, final: true)
+        originalDocument = LiveCaptionDocument(); translationDocuments = [:]; revision = -1
+        lastSpeech = .distantPast
+        let sentences = [
+            "Live captions should be easy to follow, even when the speaker keeps talking.",
+            "New words appear promptly. Completed lines stay still until another line needs room.",
+            "You can choose two, three, or four visible lines and turn gentle animation off.",
+            "Phrase blocks keep related words together. The transcript lets you scroll back and read at your own pace.",
+            "Scroll up to pause following, then choose Back to live when you are ready to catch up.",
+            "This is sample text. No microphone, model, or network connection is used for this preview."
+        ]
+        let translations = ["French": "Un peu plus de compréhension, une phrase à la fois.", "Spanish": "Un poco más de comprensión, una frase a la vez.", "German": "Ein bisschen mehr Verständnis, Satz für Satz."]
+        previewTask = Task { [weak self] in
+            for (index, sentence) in sentences.enumerated() {
+                let words = ProgressiveCaption.words(sentence)
+                for count in stride(from: 1, through: words.count, by: 1) {
+                    guard let self, !Task.isCancelled else { return }
+                    let final = count == words.count
+                    self.receive(["type": "source", "caption_id": "preview-\(index)", "revision": index,
+                                  "text": words.prefix(count).joined(), "final": final])
+                    if final {
+                        for language in self.preferences.targets {
+                            self.receive(["type": "translation", "caption_id": "preview-\(index)", "revision": index,
+                                          "language": language, "text": translations[language] ?? sentence, "final": true])
+                        }
+                    }
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                }
+            }
+            self?.phase = "Style preview · sample text"
+            self?.previewTask = nil
         }
-        playPendingWords()
         phase = "Style preview · sample text"
     }
 

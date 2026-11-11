@@ -12,7 +12,7 @@ import urllib.request
 from common import redact
 
 BASE_URL = "https://h.gskrd.me/apps/captionflow"
-VERSION = "0.4.1"
+VERSION = "0.4.2"
 RELEASE_SEQUENCE = 5
 # Release verification key is public. Signing key stays off the VPS and outside the repo.
 PUBLIC_KEY = "yTp27s/gWvh5/qBk/I6/IcszfL0oPFANbj1ffM+QDiQ="

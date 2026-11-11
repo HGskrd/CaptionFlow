@@ -115,11 +115,11 @@ struct SubtitleCanvas: View {
                     ScrollView {
                         VStack(spacing: 32) {
                             if prefs.displayMode != .translated {
-                                caption(state.originalTokens, label: "Original").frame(height: laneHeight)
+                                caption(state.originalTokens, document: state.originalDocument, label: "Original", mode: prefs.effectiveCaptionPresentation).frame(height: laneHeight)
                             }
                             if prefs.displayMode != .original {
                                 ForEach(prefs.targets, id: \.self) { language in
-                                    caption(state.translationTokens[language] ?? [], label: language).frame(height: laneHeight)
+                                    caption(state.translationTokens[language] ?? [], document: state.translationDocuments[language] ?? LiveCaptionDocument(), label: language, mode: prefs.effectiveTranslationPresentation).frame(height: laneHeight)
                                 }
                             }
                         }
@@ -133,12 +133,18 @@ struct SubtitleCanvas: View {
             .foregroundStyle(prefs.foreground.color)
         }
     }
-    private func caption(_ tokens: [CaptionToken], label: String) -> some View {
-        CaptionWordsView(tokens: tokens, label: label, typeface: prefs.typeface, fontSize: prefs.fontSize)
+    @ViewBuilder private func caption(_ tokens: [CaptionToken], document: LiveCaptionDocument, label: String, mode: CaptionPresentation) -> some View {
+        if mode == .classic {
+            CaptionWordsView(tokens: tokens, label: label, typeface: prefs.typeface, fontSize: prefs.fontSize)
+        } else {
+            LiveCaptionView(tokens: document.visibleTokens(for: mode), label: label, mode: mode,
+                            typeface: prefs.typeface, fontSize: prefs.fontSize, foreground: prefs.foreground.color,
+                            visibleLines: prefs.effectiveCaptionVisibleLines, gentleAnimation: prefs.effectiveCaptionGentleAnimation)
+        }
     }
     private var hasVisibleCaptions: Bool {
-        let hasOriginal = prefs.displayMode != .translated && !state.originalTokens.isEmpty
-        let hasTranslation = prefs.displayMode != .original && prefs.targets.contains { !(state.translationTokens[$0] ?? []).isEmpty }
+        let hasOriginal = prefs.displayMode != .translated && !(prefs.effectiveCaptionPresentation == .classic ? state.originalTokens : state.originalDocument.visibleTokens(for: prefs.effectiveCaptionPresentation)).isEmpty
+        let hasTranslation = prefs.displayMode != .original && prefs.targets.contains { !(prefs.effectiveTranslationPresentation == .classic ? state.translationTokens[$0] ?? [] : state.translationDocuments[$0]?.visibleTokens(for: prefs.effectiveTranslationPresentation) ?? []).isEmpty }
         return hasOriginal || hasTranslation
     }
 }
@@ -170,6 +176,30 @@ struct InspectorView: View {
                 }
             }
             Section("Caption flow") {
+                Picker("Original", selection: Binding(
+                    get: { state.preferences.effectiveCaptionPresentation },
+                    set: { state.preferences.captionPresentation = $0 }
+                )) { ForEach(CaptionPresentation.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                Picker("Translation", selection: Binding(
+                    get: { state.preferences.effectiveTranslationPresentation },
+                    set: { state.preferences.translationPresentation = $0 }
+                )) { ForEach(CaptionPresentation.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
+                Picker("Visible lines", selection: Binding(
+                    get: { state.preferences.effectiveCaptionVisibleLines },
+                    set: { state.preferences.captionVisibleLines = $0 }
+                )) { ForEach(2...4, id: \.self) { Text("\($0)").tag($0) } }
+                .pickerStyle(.segmented)
+                Picker("Clear after silence", selection: Binding(
+                    get: { state.preferences.effectiveCaptionClearAfter },
+                    set: { state.preferences.captionClearAfter = $0 }
+                )) { Text("Never").tag(0); Text("5 s").tag(5); Text("10 s").tag(10) }
+                Toggle("Gentle animation", isOn: Binding(
+                    get: { state.preferences.effectiveCaptionGentleAnimation },
+                    set: { state.preferences.captionGentleAnimation = $0 }
+                ))
+                Text("Rolling lines stay anchored. Phrase blocks update in groups. Transcript keeps recent text in memory; scroll up to pause following. Animation respects Reduce Motion.")
+                    .font(.caption).foregroundStyle(.secondary)
+                if state.preferences.effectiveCaptionPresentation == .classic || state.preferences.effectiveTranslationPresentation == .classic {
                 Picker("Keep on screen", selection: Binding(
                     get: { state.preferences.effectiveCaptionFlow },
                     set: { state.preferences.captionFlow = $0 }
@@ -195,6 +225,7 @@ struct InspectorView: View {
                     }
                 }
                 Text(flowDescription).font(.caption).foregroundStyle(.secondary)
+                }
             }
             Section("Canvas") {
                 ColorPicker("Text", selection: Binding(get: { state.preferences.foreground.color }, set: { state.preferences.foreground = RGBA($0) }), supportsOpacity: false)

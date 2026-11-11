@@ -10,6 +10,8 @@ Speech: **Nemotron** (streaming) or **Phonon 2.5** (compact, CPU). Mac also offe
 
 Choose **Microphone + call audio** to caption both sides through one model.
 
+Display: **Rolling lines**, **Phrase blocks**, or **Transcript**. Choose 2–4 lines, optional clearing after silence, and gentle animation. Scrollback stays in memory.
+
 To benchmark: **Start / resume benchmark** → **Until I stop** or **Quick · 5 minutes**. Progress is saved automatically.
 
 [Releases](https://github.com/HGskrd/CaptionFlow/releases) · [Build and technical notes](docs/windows-and-benchmarks.md)

@@ -17,6 +17,12 @@ enum CaptionFlowMode: String, Codable, CaseIterable {
     case words = "Words"
     case time = "Time"
 }
+enum CaptionPresentation: String, Codable, CaseIterable {
+    case rolling = "Rolling lines"
+    case phrase = "Phrase blocks"
+    case transcript = "Transcript"
+    case classic = "Classic"
+}
 struct Preferences: Codable {
     static let nemotronSpeechModel = "nvidia/nemotron-3.5-asr-streaming-0.6b"
     static let reduxSpeechModel = "moondream/parakeet-redux"
@@ -57,6 +63,16 @@ struct Preferences: Codable {
             ? value : (Self.voxtralDelays.first { $0 > effectiveVoxtralDelayMS } ?? 2400)
     }
     var captionFlow: CaptionFlowMode?
+    var captionPresentation: CaptionPresentation?
+    var translationPresentation: CaptionPresentation?
+    var captionVisibleLines: Int?
+    var captionClearAfter: Int?
+    var captionGentleAnimation: Bool?
+    var effectiveCaptionPresentation: CaptionPresentation { captionPresentation ?? .rolling }
+    var effectiveTranslationPresentation: CaptionPresentation { translationPresentation ?? .phrase }
+    var effectiveCaptionVisibleLines: Int { min(4, max(2, captionVisibleLines ?? 3)) }
+    var effectiveCaptionClearAfter: Int { [5, 10].contains(captionClearAfter ?? 0) ? captionClearAfter! : 0 }
+    var effectiveCaptionGentleAnimation: Bool { captionGentleAnimation ?? true }
     var captionWordLimit: Int?
     var captionTimeLimit: Double?
     var effectiveCaptionFlow: CaptionFlowMode { captionFlow ?? .sentence }

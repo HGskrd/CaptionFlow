@@ -10,13 +10,14 @@ import time
 import traceback
 import zipfile
 
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QPlainTextEdit, QFileDialog, QSpinBox, QMessageBox, QCheckBox)
 from common import ROOT, WorkerSession, doctor, hardware, redact
 from runtime_assets import install
 from feedback import Feedback, VERSION
+from caption_display import CaptionPane, MODES, load_settings
 
 
 class Signals(QObject):
@@ -62,12 +63,30 @@ class Window(QMainWindow):
         self.target = QComboBox(); self.target.addItems(["English", "French", "Off"]); controls.addWidget(self.target)
         self.listen = QPushButton("Start listening"); self.listen.clicked.connect(self.start_listening); controls.addWidget(self.listen)
         self.stop = QPushButton("Stop"); self.stop.clicked.connect(self.cancelled.set); self.stop.setEnabled(False); controls.addWidget(self.stop)
-        self.original = QLabel("Ready when you are."); self.original.setWordWrap(True); self.original.setAlignment(Qt.AlignCenter)
-        self.translated = QLabel(""); self.translated.setWordWrap(True); self.translated.setAlignment(Qt.AlignCenter)
-        for label in (self.original, self.translated):
-            font = QApplication.font(); font.setPointSize(28)
-            label.setFont(font); label.setTextFormat(Qt.PlainText)
-            label.setMargin(25); layout.addWidget(label, 1)
+        self.display_settings_path = self.data / "display-settings.json"
+        self.display_settings = load_settings(self.display_settings_path)
+        self.last_speech = float("-inf")
+        display = QHBoxLayout(); layout.addLayout(display)
+        self.original_style = QComboBox(); self.original_style.addItems(MODES)
+        self.translation_style = QComboBox(); self.translation_style.addItems(MODES)
+        self.original_style.setCurrentText(self.display_settings["original"])
+        self.translation_style.setCurrentText(self.display_settings["translation"])
+        self.visible_lines = QComboBox(); self.visible_lines.addItems(["2", "3", "4"])
+        self.visible_lines.setCurrentText(str(self.display_settings["lines"]))
+        self.clear_after = QComboBox()
+        for label, seconds in (("Never", 0), ("5 s", 5), ("10 s", 10)): self.clear_after.addItem(label, seconds)
+        self.clear_after.setCurrentIndex(self.clear_after.findData(self.display_settings["clear_after"]))
+        for label, control in (("Original", self.original_style), ("Translation", self.translation_style), ("Lines", self.visible_lines), ("Clear after silence", self.clear_after)):
+            display.addWidget(QLabel(label)); display.addWidget(control)
+            control.currentIndexChanged.connect(self.change_display)
+        self.gentle_animation = QCheckBox("Gentle animation"); self.gentle_animation.setChecked(self.display_settings["animation"])
+        self.gentle_animation.setToolTip("Respects your system's animation preference.")
+        self.gentle_animation.toggled.connect(self.change_display); display.addWidget(self.gentle_animation)
+        self.original = CaptionPane(); self.translated = CaptionPane()
+        layout.addWidget(self.original, 1); layout.addWidget(self.translated, 1)
+        self.original.configure(self.display_settings, "original"); self.translated.configure(self.display_settings, "translation")
+        self.clear_timer = QTimer(self); self.clear_timer.setInterval(250); self.clear_timer.timeout.connect(self.clear_idle_captions)
+        if self.display_settings["clear_after"]: self.clear_timer.start()
         bench = QHBoxLayout(); layout.addLayout(bench)
         self.fixture = QComboBox()
         for label, filename in (("Mixed call · turn-taking", "fr-call-turns.json"), ("Mixed call · overlap", "fr-call-overlap.json"), ("Clean speech", "fr-synthetic.json")):
@@ -88,8 +107,22 @@ class Window(QMainWindow):
         self.status("Models stay local. Setup downloads about 2 GB. Benchmarks replay synthetic calls; they do not record you.")
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
         if not smoke_test:
-            from PySide6.QtCore import QTimer
             QTimer.singleShot(0, self.first_launch)
+
+    def change_display(self):
+        self.display_settings = {"original": self.original_style.currentText(), "translation": self.translation_style.currentText(),
+                                 "lines": int(self.visible_lines.currentText()), "clear_after": self.clear_after.currentData(),
+                                 "animation": self.gentle_animation.isChecked()}
+        self.display_settings_path.write_text(json.dumps(self.display_settings), encoding="utf-8")
+        self.original.configure(self.display_settings, "original"); self.translated.configure(self.display_settings, "translation")
+        if self.display_settings["clear_after"]: self.clear_timer.start()
+        else: self.clear_timer.stop()
+
+    def clear_idle_captions(self):
+        for pane in (self.original, self.translated):
+            was_cleared = pane.document.cleared
+            pane.document.clear_if_idle(self.display_settings["clear_after"], self.last_speech)
+            if was_cleared != pane.document.cleared: pane.refresh()
 
     def first_launch(self):
         if self.feedback.state.get("consent") is None:
@@ -210,6 +243,7 @@ class Window(QMainWindow):
         if mode != "microphone" and os.name != "nt":
             self.status("Use the native macOS app for Mac system audio capture."); return
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
+        self.original.reset(); self.translated.reset(); self.last_speech = float("-inf")
         echo = self.echo.isChecked()
         self.launch(lambda: self.capture(config, mode, echo))
 
@@ -229,9 +263,15 @@ class Window(QMainWindow):
             sending = [None]; faults = []
             def forward():
                 try:
+                    last_activity = 0.0
                     while not self.cancelled.is_set():
                         pcm = audio.next(self.cancelled)
                         if pcm is None: break
+                        now = time.monotonic()
+                        if now-last_activity >= .25:
+                            samples = memoryview(pcm).cast("h")[::16]
+                            if samples and sum(value*value for value in samples)/len(samples) > (32768*float(config.get("silence_threshold", .008)))**2:
+                                self.signals.event.emit({"type": "speech_activity", "at": now}); last_activity = now
                         sending[0] = ("audio", time.monotonic())
                         self.session.send({"type": "audio", "pcm": base64.b64encode(pcm).decode()})
                         sending[0] = None
@@ -274,16 +314,18 @@ class Window(QMainWindow):
         if kind == "update":
             if self.feedback.allowed:
                 self.release = event["release"]; self.update.setText("Update to " + self.release["version"]); self.update.show()
+        elif kind == "speech_activity":
+            self.last_speech = event["at"]
         elif kind == "source":
+            if event["revision"] < self.latest_revision: return
             self.latest_revision = event["revision"]
             if self.latest_caption != event["caption_id"]:
-                self.translated.setText(""); self.latest_caption = event["caption_id"]
-            self.original.setText(event["text"])
+                self.latest_caption = event["caption_id"]; self.translated_revision = -1
+            self.original.receive(event)
         elif kind == "translation" and event["caption_id"] == self.latest_caption:
-            # A newer source revision may arrive while its predecessor translates.
-            if event["revision"] >= getattr(self, "translated_revision", 0):
+            if event["revision"] >= self.translated_revision:
                 self.translated_revision = event["revision"]
-                self.translated.setText(event["text"])
+                self.translated.receive(event, translated=True)
         elif kind in ("status", "error"):
             self.status(event.get("message", kind))
             if kind == "error": self.cancelled.set()

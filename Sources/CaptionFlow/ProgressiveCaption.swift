@@ -277,7 +277,7 @@ struct ProgressiveCaption {
         return newIndex
     }
 
-    private static func alignment(from old: [String], to new: [String]) -> [(Int, Int)] {
+    static func alignment(from old: [String], to new: [String]) -> [(Int, Int)] {
         let a = old.map(key), b = new.map(key)
         var costs = Array(repeating: Array(repeating: 0, count: b.count + 1), count: a.count + 1)
         for i in 0...a.count { costs[i][0] = i }

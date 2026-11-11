@@ -13,10 +13,10 @@ InstallDir "$LOCALAPPDATA\Programs\CaptionFlow"
 InstallDirRegKey HKCU "Software\CaptionFlow" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "0.4.0.0"
+VIProductVersion "0.4.1.0"
 VIAddVersionKey "ProductName" "CaptionFlow"
 VIAddVersionKey "FileDescription" "CaptionFlow Installer"
-VIAddVersionKey "FileVersion" "0.4.0"
+VIAddVersionKey "FileVersion" "0.4.1"
 VIAddVersionKey "LegalCopyright" "CaptionFlow contributors"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_INSTFILES
@@ -48,7 +48,7 @@ Section "CaptionFlow"
   WriteRegStr HKCU "Software\CaptionFlow" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayName" "CaptionFlow"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayVersion" "0.4.0"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayVersion" "0.4.1"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "Publisher" "HGskrd"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "URLInfoAbout" "https://github.com/HGskrd/CaptionFlow"

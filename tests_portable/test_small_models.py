@@ -13,6 +13,23 @@ from worker import run_snapshot_speech
 
 
 class SmallModelTests(unittest.TestCase):
+    def test_download_identifies_the_app_and_preserves_resume_header(self):
+        import hashlib
+        import io
+        from runtime_assets import download
+        with tempfile.TemporaryDirectory() as root:
+            path = Path(root) / "update.zip"
+            path.with_suffix(".zip.partial").write_bytes(b"first")
+            response = io.BytesIO(b"second")
+            response.status = 206
+            with patch("urllib.request.urlopen", return_value=response) as network:
+                download("https://example.org/update.zip", path,
+                         hashlib.sha256(b"firstsecond").hexdigest(), progress=lambda _: None)
+            headers = dict(network.call_args.args[0].header_items())
+            self.assertEqual(headers["User-agent"], "CaptionFlow")
+            self.assertEqual(headers["Range"], "bytes=5-")
+            self.assertEqual(path.read_bytes(), b"firstsecond")
+
     def test_worker_protocol_is_utf8_under_a_legacy_console_encoding(self):
         import common
         with tempfile.TemporaryDirectory() as root:

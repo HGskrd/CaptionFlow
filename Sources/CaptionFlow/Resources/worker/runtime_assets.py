@@ -60,7 +60,10 @@ def download(url, path, expected, progress=print, allow_network=True):
         raise PermissionError(f"Local-only mode: supply {path.name} offline, or enable online participation")
     partial = path.with_suffix(path.suffix + ".partial")
     offset = partial.stat().st_size if partial.exists() else 0
-    request = urllib.request.Request(url, headers={"Range": f"bytes={offset}-"} if offset else {})
+    headers = {"User-Agent": "CaptionFlow"}
+    if offset:
+        headers["Range"] = f"bytes={offset}-"
+    request = urllib.request.Request(url, headers=headers)
     progress(f"Downloading {path.name}…")
     with urllib.request.urlopen(request, timeout=60) as response:
         resume = offset and response.status == 206

@@ -13,7 +13,7 @@ from common import redact
 
 BASE_URL = "https://h.gskrd.me/apps/captionflow"
 VERSION = "0.4.2"
-RELEASE_SEQUENCE = 5
+RELEASE_SEQUENCE = 6
 # Release verification key is public. Signing key stays off the VPS and outside the repo.
 PUBLIC_KEY = "yTp27s/gWvh5/qBk/I6/IcszfL0oPFANbj1ffM+QDiQ="
 FORBIDDEN = {"audio", "pcm", "transcript", "text", "hostname", "serial", "username", "token",
@@ -122,6 +122,7 @@ class Feedback:
         envelope = self.request("/v1/releases/" + target)
         if not envelope: return None
         release = verify_manifest(envelope, target)
+        if release.get("version") == VERSION: return None
         if release["sequence"] <= RELEASE_SEQUENCE or release["sequence"] < self.state.get("highest_release", 0): return None
         return release
 

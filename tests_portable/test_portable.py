@@ -234,3 +234,16 @@ class ResilientBenchmarkTests(unittest.TestCase):
             self.assertEqual(run.call_count,2);self.assertTrue(report['trials'][-1]['failure_detected'])
 
 if __name__=='__main__':unittest.main()
+
+
+class InstalledReleaseTests(unittest.TestCase):
+    def test_current_version_is_not_offered_again_even_if_sequence_increases(self):
+        from unittest.mock import patch
+        import feedback
+        with tempfile.TemporaryDirectory() as directory:
+            client = feedback.Feedback(Path(directory))
+            release = {"version": feedback.VERSION, "sequence": feedback.RELEASE_SEQUENCE + 1}
+            with patch.object(client, "request", return_value={"payload": "test"}), patch.object(feedback, "verify_manifest", return_value=release):
+                self.assertIsNone(client.check_update())
+                release["version"] = "99.0.0"
+                self.assertEqual(client.check_update(), release)

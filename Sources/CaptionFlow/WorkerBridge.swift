@@ -15,11 +15,12 @@ final class WorkerBridge: @unchecked Sendable {
     static var support: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("CaptionFlow")
     }
-    static var python: URL { support.appendingPathComponent("runtime/bin/python3") }
+    static var runtime: URL { support.appendingPathComponent(Preferences.supportsMLX ? "runtime" : "runtime-x86_64") }
+    static var python: URL { runtime.appendingPathComponent("bin/python3") }
     static var resources: URL {
         Bundle.main.url(forResource: "worker", withExtension: nil) ?? Bundle.module.url(forResource: "worker", withExtension: nil)!
     }
-    static var isInstalled: Bool { FileManager.default.fileExists(atPath: support.appendingPathComponent("runtime/.ready-v3").path) }
+    static var isInstalled: Bool { FileManager.default.fileExists(atPath: runtime.appendingPathComponent(".ready-v4").path) }
 
     static func install(using pythonPath: String, progress: @escaping @Sendable (String) -> Void) async throws {
         try await Task.detached {
@@ -40,10 +41,12 @@ final class WorkerBridge: @unchecked Sendable {
                 if p.terminationStatus != 0 { throw NSError(domain: "Runtime setup", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: tail]) }
             }
             progress("Creating a private Python environment…")
-            try run(pythonPath, ["-m", "venv", support.appendingPathComponent("runtime").path])
-            progress("Installing MLX speech and translation dependencies…")
+            let architecture = Preferences.supportsMLX ? "arm64" : "x86_64"
+            try run(pythonPath, ["-c", "import platform, sys; assert sys.version_info >= (3, 11), 'Python 3.11 or newer is required'; assert platform.machine() == '\(architecture)', 'Choose a \(architecture) Python installation for this app'"])
+            try run(pythonPath, ["-m", "venv", runtime.path])
+            progress("Installing local speech and translation dependencies…")
             try run(python.path, ["-m", "pip", "install", "--disable-pip-version-check", "-r", resources.appendingPathComponent("requirements.txt").path])
-            try Data().write(to: support.appendingPathComponent("runtime/.ready-v3"))
+            try Data().write(to: runtime.appendingPathComponent(".ready-v4"))
         }.value
     }
     func start(configuration: [String: Any]) throws {

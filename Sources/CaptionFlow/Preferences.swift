@@ -24,6 +24,13 @@ enum CaptionPresentation: String, Codable, CaseIterable {
     case classic = "Classic"
 }
 struct Preferences: Codable {
+    static var supportsMLX: Bool {
+        #if arch(arm64)
+        true
+        #else
+        false
+        #endif
+    }
     static let nemotronSpeechModel = "nvidia/nemotron-3.5-asr-streaming-0.6b"
     static let reduxSpeechModel = "moondream/parakeet-redux"
     static let phononSpeechModel = "FermionResearch/Phonon-2.5"
@@ -44,7 +51,9 @@ struct Preferences: Codable {
     var whisperModel = "mlx-community/whisper-small-mlx"
     var translationModel = Self.qwen25TranslationModel
     var allowDownloads = true
-    var pythonPath = "/opt/homebrew/bin/python3.11"
+    var pythonPath = Self.supportsMLX ? "/opt/homebrew/bin/python3.11" : "/usr/local/bin/python3.11"
+    var effectiveSpeechModel: String { Self.supportsMLX ? whisperModel : Self.nemotronSpeechModel }
+    var effectiveTranslationModel: String { Self.supportsMLX ? translationModel : "tencent/Hy-MT2-1.8B-GGUF" }
     var silenceThreshold = 0.008
     // Optional storage keeps preferences written by older builds decodable.
     var voxtralDualDelay: Bool?

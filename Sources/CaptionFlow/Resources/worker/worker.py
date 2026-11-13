@@ -404,6 +404,22 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
         publish(utterance, text, language, final, time.monotonic() - start)
 
 
+def configure_managed_runtime(configuration, progress):
+    from small_models import NEMOTRON
+    if configuration["speech_model"] != NEMOTRON:
+        return
+    from runtime_assets import install, platform_key
+    intel = platform_key() == "macos-x86_64"
+    managed = install(Path(configuration["cache_dir"]).parent, "cpu" if intel else "metal",
+                      translation=intel and bool(configuration.get("targets")),
+                      allow_network=configuration.get("allow_downloads", False), progress=progress)
+    keys = ["speech_backend", "native_backend", "native_sdk", "speech_model", "gpu", "nemotron_right_context"]
+    if intel and configuration.get("targets"):
+        keys += ["translation_backend", "translation_model_type", "translation_model", "llama_server"]
+    for key in keys:
+        configuration[key] = managed[key]
+
+
 def main():
     configuration = json.loads(sys.stdin.readline())
     if configuration.get("type") != "configure":
@@ -413,13 +429,7 @@ def main():
         os.environ["HF_HUB_OFFLINE"] = "1"
         os.environ["TRANSFORMERS_OFFLINE"] = "1"
     cache_dir = configuration["cache_dir"]
-    from small_models import NEMOTRON
-    if configuration["speech_model"] == NEMOTRON:
-        from runtime_assets import install
-        managed = install(Path(cache_dir).parent, "metal", translation=False, allow_network=allow,
-                          progress=lambda message: emit("status", message=message))
-        for key in ("speech_backend", "native_backend", "native_sdk", "speech_model", "gpu", "nemotron_right_context"):
-            configuration[key] = managed[key]
+    configure_managed_runtime(configuration, lambda message: emit("status", message=message))
     native = configuration.get("speech_backend") == "nemo"
     compact_cpu = configuration.get("speech_backend") in {"phonon_cpu"}
     speech = configuration["speech_model"] if native else resolve_model(configuration["speech_model"], cache_dir, allow)

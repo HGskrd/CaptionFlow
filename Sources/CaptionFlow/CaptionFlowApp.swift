@@ -306,41 +306,45 @@ struct InspectorView: View {
     private var models: some View {
         Group {
             Section("Local inference") {
-                Label(state.installed ? "MLX runtime installed" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
+                Label(state.installed ? "Local runtime installed" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
                 if state.busy { ProgressView().controlSize(.small); Text(state.phase).font(.caption).foregroundStyle(.secondary) }
                 if !state.installed {
-                    Text("Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)
+                    Text(Preferences.supportsMLX ? "Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac." : "Install a private CPU runtime using an Intel Python 3.11+ installation. Setup downloads the speech and translation models; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)
                     TextField("Python 3.11+ path", text: $state.preferences.pythonPath).font(.caption)
                     Button(state.installing ? "Installing…" : "Install local runtime") { state.install() }.disabled(state.installing)
                     if state.installing { ProgressView().controlSize(.small); Text(state.phase).font(.caption).lineLimit(4) }
                 }
             }
-            Section("Model folders · optional") {
-                Text("Add any number of roots. Existing MLX models are used in place, including Hugging Face snapshots.").font(.caption).foregroundStyle(.secondary)
-                ForEach(state.preferences.roots, id: \.self) { path in
-                    HStack {
-                        Image(systemName: "folder").foregroundStyle(.secondary)
-                        VStack(alignment: .leading) { Text(URL(fileURLWithPath: path).lastPathComponent); Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(path) }
-                        Spacer()
-                        Button { state.preferences.roots.removeAll { $0 == path }; state.scan() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).accessibilityLabel("Remove \(path)")
+            if Preferences.supportsMLX {
+                Section("Model folders · optional") {
+                    Text("Add any number of roots. Existing MLX models are used in place, including Hugging Face snapshots.").font(.caption).foregroundStyle(.secondary)
+                    ForEach(state.preferences.roots, id: \.self) { path in
+                        HStack {
+                            Image(systemName: "folder").foregroundStyle(.secondary)
+                            VStack(alignment: .leading) { Text(URL(fileURLWithPath: path).lastPathComponent); Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(path) }
+                            Spacer()
+                            Button { state.preferences.roots.removeAll { $0 == path }; state.scan() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).accessibilityLabel("Remove \(path)")
+                        }
                     }
-                }
-                HStack {
-                    Button("Add folders…", systemImage: "folder.badge.plus") { state.addRoots() }
-                    Spacer()
-                    Button { state.scan() } label: { Image(systemName: "arrow.clockwise") }.disabled(state.scanning).help("Rescan folders")
-                }
-                .dropDestination(for: URL.self) { urls, _ in state.addRoots(urls); return true }
-                Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
-            }.disabled(state.active || state.installing)
+                    HStack {
+                        Button("Add folders…", systemImage: "folder.badge.plus") { state.addRoots() }
+                        Spacer()
+                        Button { state.scan() } label: { Image(systemName: "arrow.clockwise") }.disabled(state.scanning).help("Rescan folders")
+                    }
+                    .dropDestination(for: URL.self) { urls, _ in state.addRoots(urls); return true }
+                    Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
+                }.disabled(state.active || state.installing)
+            }
             Section("Models") {
-                speechModelPicker
+                if Preferences.supportsMLX { speechModelPicker }
+                else { LabeledContent("Speech", value: "Nemotron 3.5 · streaming") }
                 Text(state.speechModelNote).font(.caption).foregroundStyle(.secondary)
-                if state.usesVoxtral { voxtralSettings }
-                translationModelPicker
+                if Preferences.supportsMLX && state.usesVoxtral { voxtralSettings }
+                if Preferences.supportsMLX { translationModelPicker }
+                else { LabeledContent("Translation", value: "Hy-MT2 · 1.8B · CPU") }
                 Text(state.translationModelNote).font(.caption).foregroundStyle(.secondary)
                 Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
-                Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Nemotron uses its managed native runtime. Other custom folders must be MLX-compatible.").font(.caption).foregroundStyle(.secondary)
+                Text(Preferences.supportsMLX ? "Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Nemotron uses its managed native runtime. Other custom folders must be MLX-compatible." : "Models use app-managed copies. Disable downloads for offline startup after setup. CPU inference speed depends on your Mac.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active || state.installing)
             DisclosureGroup("Audio sensitivity") {
                 Slider(value: $state.preferences.silenceThreshold, in: 0.001...0.04).accessibilityLabel("Silence threshold")

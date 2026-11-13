@@ -2,10 +2,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 CONFIGURATION="${CONFIGURATION:-release}"
-swift build -c "$CONFIGURATION"
-APP="$PWD/dist/CaptionFlow.app"
+SWIFT="${SWIFT:-swift}"
+PYTHON="${PYTHON:-python3}"
+ARCH="${ARCH:-$(uname -m)}"
+case "$ARCH" in arm64|x86_64) ;; *) echo "Unsupported architecture: $ARCH" >&2; exit 1 ;; esac
+BUILD_DIR="${BUILD_DIR:-$PWD/.build}"
+OUTPUT_DIR="${OUTPUT_DIR:-$PWD/dist}"
+BUILD_ARGS=(--scratch-path "$BUILD_DIR" --triple "$ARCH-apple-macosx14.0" -c "$CONFIGURATION")
+if [ -n "${SDKROOT:-}" ]; then BUILD_ARGS+=(--sdk "$SDKROOT"); fi
+"$SWIFT" build "${BUILD_ARGS[@]}"
+APP="$OUTPUT_DIR/CaptionFlow.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-BIN="$(swift build -c "$CONFIGURATION" --show-bin-path)"
+BIN="$("$SWIFT" build "${BUILD_ARGS[@]}" --show-bin-path)"
 cp "$BIN/CaptionFlow" "$APP/Contents/MacOS/CaptionFlow"
 cp native/CaptionAudio/vendor/COPYING "$APP/Contents/Resources/SpeexDSP-LICENSE.txt"
 # Put runtime resources in the standard signed bundle resource directory.
@@ -22,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>CaptionFlow</string>
 <key>CFBundleDisplayName</key><string>CaptionFlow</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.3</string>
+<key>CFBundleShortVersionString</key><string>0.4.4</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSMicrophoneUsageDescription</key><string>CaptionFlow listens to your microphone to create private, on-device subtitles.</string>
@@ -30,5 +38,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
-/usr/bin/python3 scripts/sign-app.py "$APP"
+"$PYTHON" scripts/sign-app.py "$APP"
+codesign --verify --deep --strict "$APP"
+lipo "$APP/Contents/MacOS/CaptionFlow" -verify_arch "$ARCH"
 printf '%s\n' "$APP"

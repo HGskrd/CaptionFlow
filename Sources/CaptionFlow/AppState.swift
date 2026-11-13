@@ -72,6 +72,7 @@ final class AppState: ObservableObject {
         return config["model_type"] as? String == "voxtral_realtime"
     }
     var speechModelNote: String {
+        if !Preferences.supportsMLX { return "Nemotron 3.5 · 0.6B · native streaming · CPU" }
         let model = preferences.whisperModel.lowercased()
         if model.contains("nemotron") { return "Nemotron 3.5 · 0.6B · native streaming · Metal" }
         if model.contains("redux") { return "Parakeet Redux · compressed 0.6B · 25 European languages · chunked" }
@@ -82,6 +83,7 @@ final class AppState: ObservableObject {
         return "Whisper Small · multilingual · balanced"
     }
     var translationModelNote: String {
+        if !Preferences.supportsMLX { return "Hy-MT2 · 1.8B · 4-bit GGUF · CPU · translates completed phrases" }
         if preferences.translationModel == Preferences.hyMT2TranslationModel {
             return "Hy-MT2 · about 1.02 GB · translation-specific · 33 languages"
         }
@@ -133,8 +135,8 @@ final class AppState: ObservableObject {
         bridge.onExit = { [weak self] message in Task { @MainActor in guard let self, self.session == id, self.active else { return }; self.fail(message) } }
         do {
             try bridge.start(configuration: [
-                "type": "configure", "speech_model": preferences.whisperModel,
-                "translation_model": preferences.translationModel, "targets": preferences.displayMode == .original ? [] : preferences.targets,
+                "type": "configure", "speech_model": preferences.effectiveSpeechModel,
+                "translation_model": preferences.effectiveTranslationModel, "targets": preferences.displayMode == .original ? [] : preferences.targets,
                 "source_language": preferences.sourceLanguage, "allow_downloads": preferences.allowDownloads && community.enabled,
                 "cache_dir": WorkerBridge.support.appendingPathComponent("models").path,
                 "silence_threshold": preferences.silenceThreshold,

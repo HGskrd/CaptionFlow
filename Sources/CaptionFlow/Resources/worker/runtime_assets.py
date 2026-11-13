@@ -23,6 +23,7 @@ NEMO_HASHES = {
     "linux-x86_64-vulkan": "2a8b2ca4610b6ea5d659ba10794526f6e5a77fb1623d52c35272a9fd1f74abac",
 }
 LLAMA_ASSETS = {
+    "macos-x86_64-cpu": ("macos-x64.tar.gz", "c8094268b6bf62f4998f0e45656fd9f5e2d4afb6b1cd0044d761db64be1dd47d"),
     "macos-aarch64": ("macos-arm64.tar.gz", "4f5b8de12e0b9516658ca6a5764c6ffb3d7c659c3dd538556b1413c7b4050662"),
     "windows-x86_64-cpu": ("win-cpu-x64.zip", "98901e327c252875accaf2d1bf364e10e868843b0b63468baad1aa945cdc5da2"),
     "windows-x86_64-vulkan": ("win-vulkan-x64.zip", "9732a5e48887ca54d0bfe4af4324dc85fd56cd8cda19b52df3542fa6ebe6874f"),

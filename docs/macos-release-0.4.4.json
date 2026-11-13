@@ -1,0 +1,62 @@
+{
+  "version": "0.4.4",
+  "date": "2026-11-13",
+  "scope": "native SwiftUI macOS release",
+  "build": {
+    "compiler": "Apple Swift 6.4.2",
+    "sdk": "MacOSX26.2.sdk",
+    "deployment_target": "macOS 14.0",
+    "architectures": [
+      "arm64",
+      "x86_64"
+    ],
+    "signing": "CaptionFlow Local Development; strict code-signature verification passed",
+    "notarized": false
+  },
+  "tests": {
+    "swift_arm64": {
+      "passed": 41,
+      "failed": 0
+    },
+    "swift_x86_64_rosetta": {
+      "passed": 41,
+      "failed": 0
+    },
+    "worker_python": {
+      "passed": 11,
+      "failed": 0
+    },
+    "macos_runtime_routing": {
+      "passed": 3,
+      "failed": 0
+    }
+  },
+  "bundled_worker_checks": [
+    {
+      "architecture": "arm64",
+      "execution": "native Apple Silicon",
+      "fixture": "The train leaves at nine tomorrow morning.",
+      "backend": "MLX",
+      "source": "The train leaves at 9 tomorrow morning.",
+      "translation": "Le train part à 9 heures demain matin.",
+      "seconds": 8.78,
+      "outbound_network": "disabled by worker configuration; dependencies and models prepared beforehand"
+    },
+    {
+      "architecture": "x86_64",
+      "execution": "Rosetta on Apple Silicon",
+      "fixture": "The train leaves at nine tomorrow morning.",
+      "backend": "cpu",
+      "engine": "nemotron_native",
+      "source": "the train leaves at nine tomorrow morning",
+      "translation": "Le train part à neuf heures demain matin",
+      "seconds": 30.53,
+      "outbound_network": "disabled by worker configuration; dependencies and models prepared beforehand"
+    }
+  ],
+  "limits": [
+    "Intel executed under Rosetta, not on physical Intel hardware.",
+    "Synthesized-audio worker-protocol tests do not establish microphone-to-screen latency.",
+    "Native visual UI inspection was unavailable: Computer Use was not approved for CaptionFlow."
+  ]
+}

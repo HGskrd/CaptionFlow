@@ -6,9 +6,9 @@ Local live captions and translation.
 
 Run the installer, then open CaptionFlow from the Start menu. No Python or CUDA installation needed. First setup downloads the models (~2 GB).
 
-**macOS SwiftUI:** [Apple Silicon (arm64)](https://github.com/HGskrd/CaptionFlow/releases/download/macos-v0.4.4/CaptionFlow-macOS-arm64-0.4.4.zip) · [Intel (x86_64)](https://github.com/HGskrd/CaptionFlow/releases/download/macos-v0.4.4/CaptionFlow-macOS-x86_64-0.4.4.zip)
+**macOS SwiftUI:** [Apple Silicon (arm64)](https://github.com/HGskrd/CaptionFlow/releases/download/macos-v0.4.5/CaptionFlow-macOS-arm64-0.4.5.dmg) · [Intel (x86_64)](https://github.com/HGskrd/CaptionFlow/releases/download/macos-v0.4.5/CaptionFlow-macOS-x86_64-0.4.5.dmg)
 
-Extract the ZIP and move **CaptionFlow.app** into Applications. These builds are locally signed, not Apple-notarized; macOS may require **System Settings → Privacy & Security → Open Anyway** for the first launch. Under Models, supply a Python 3.11+ executable matching your Mac's architecture and install the private runtime. Apple Silicon uses MLX/Metal; Intel uses Nemotron CPU speech and Hy-MT2 GGUF CPU translation. CPU translation updates after each completed phrase. The app targets macOS 14+; individual MLX dependencies may require a newer macOS. Intel is cross-built and tested under Rosetta, without a physical Intel Mac performance claim.
+Open the DMG, drag **CaptionFlow** to **Applications**, then open it from Applications. Python and runtime dependencies are included; no terminal or Python installation is needed. Choose your languages and start listening. Missing models download on first use when online participation is enabled. Apple Silicon requires macOS 26+ and uses MLX/Metal; Intel requires macOS 14+ and uses Nemotron CPU speech and Hy-MT2 GGUF CPU translation after completed phrases. Intel was tested under Rosetta; physical Intel performance is unverified. These builds are locally signed, not Apple-notarized; macOS may require **System Settings → Privacy & Security → Open Anyway** for the first launch.
 
 Speech: **Nemotron** (streaming) or **Phonon 2.5** (compact, CPU). Mac also offers **Parakeet Redux**.
 
@@ -20,4 +20,4 @@ To benchmark: **Start / resume benchmark** → **Until I stop** or **Quick · 5 
 
 [Releases](https://github.com/HGskrd/CaptionFlow/releases) · [Build and technical notes](docs/windows-and-benchmarks.md)
 
-Build both Mac archives locally with `./scripts/release-macos.sh` (requires an existing signing identity). `ARCH=arm64` or `ARCH=x86_64 ./scripts/build-app.sh` builds one architecture. `SWIFT`, `PYTHON`, `SDKROOT`, `DEVELOPER_DIR`, `BUILD_DIR`, and `OUTPUT_DIR` can select installed tools and output locations. For example, this Mac uses the Xcode Swift compiler directly with `DEVELOPER_DIR=/Library/Developer/CommandLineTools` and `SDKROOT=/Library/Developer/CommandLineTools/SDKs/MacOSX26.2.sdk`.
+Build both self-contained DMGs with `./scripts/release-macos.sh`. The packaging Python needs `dmgbuild` and `Pillow`; `uv` supplies pinned, relocatable CPython runtimes. Exact dependency constraints live in `scripts/macos-requirements-{arm64,x86_64}.txt`. An existing signing identity is required. `ARCH=arm64` or `ARCH=x86_64 ./scripts/build-app.sh` builds the development shell. `SWIFT`, `PYTHON`, `PACKAGING_PYTHON`, `SDKROOT`, `DEVELOPER_DIR`, `BUILD_DIR`, and `OUTPUT_DIR` can select installed tools and output locations.

@@ -16,11 +16,19 @@ final class WorkerBridge: @unchecked Sendable {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("CaptionFlow")
     }
     static var runtime: URL { support.appendingPathComponent(Preferences.supportsMLX ? "runtime" : "runtime-x86_64") }
-    static var python: URL { runtime.appendingPathComponent("bin/python3") }
+    static func bundledPython(in resources: URL?) -> URL? {
+        guard let executable = resources?.appendingPathComponent("python/bin/python3"),
+              FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
+        return executable
+    }
+    static var python: URL { bundledPython(in: Bundle.main.resourceURL) ?? runtime.appendingPathComponent("bin/python3") }
     static var resources: URL {
         Bundle.main.url(forResource: "worker", withExtension: nil) ?? Bundle.module.url(forResource: "worker", withExtension: nil)!
     }
-    static var isInstalled: Bool { FileManager.default.fileExists(atPath: runtime.appendingPathComponent(".ready-v4").path) }
+    static var isInstalled: Bool {
+        bundledPython(in: Bundle.main.resourceURL) != nil ||
+        FileManager.default.fileExists(atPath: runtime.appendingPathComponent(".ready-v4").path)
+    }
 
     static func install(using pythonPath: String, progress: @escaping @Sendable (String) -> Void) async throws {
         try await Task.detached {
@@ -59,6 +67,14 @@ final class WorkerBridge: @unchecked Sendable {
         environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
         // The standard HTTPS path is more reliable on filtered networks and proxies.
         environment["HF_HUB_DISABLE_XET"] = "1"
+        environment["PYTHONNOUSERSITE"] = "1"
+        environment.removeValue(forKey: "PYTHONPATH")
+        environment.removeValue(forKey: "PYTHONHOME")
+        environment.removeValue(forKey: "VIRTUAL_ENV")
+        if let bundled = Self.bundledPython(in: Bundle.main.resourceURL) {
+            environment["SSL_CERT_FILE"] = bundled.deletingLastPathComponent().deletingLastPathComponent()
+                .appendingPathComponent("lib/python3.11/site-packages/certifi/cacert.pem").path
+        }
         p.environment = environment
         let output = Pipe(); let errors = Pipe()
         p.standardInput = input; p.standardOutput = output; p.standardError = errors

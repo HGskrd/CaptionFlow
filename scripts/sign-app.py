@@ -19,10 +19,28 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
+def sign_nested_runtime(app, identity, keychain=None):
+    runtime = app / 'Contents/Resources/python'
+    if not runtime.exists():
+        return
+    magic = {bytes.fromhex(value) for value in ('feedface', 'cefaedfe', 'feedfacf', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca')}
+    for path in sorted(runtime.rglob('*'), key=lambda value: len(value.parts), reverse=True):
+        if path.is_symlink() or not path.is_file():
+            continue
+        with path.open('rb') as stream:
+            if stream.read(4) not in magic:
+                continue
+        command = ['/usr/bin/codesign', '--force', '--sign', identity, '--timestamp=none']
+        if keychain:
+            command += ['--keychain', str(keychain)]
+        run(*command, str(path), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
 def main():
     app = Path(sys.argv[1]).resolve()
     supplied = os.environ.get('CAPTIONFLOW_SIGNING_IDENTITY')
     if supplied:
+        sign_nested_runtime(app, supplied)
         run('/usr/bin/codesign', '--force', '--sign', supplied, str(app))
         return
     keychain = Path.home() / 'Library/Keychains/login.keychain-db'
@@ -54,6 +72,7 @@ def main():
             sys.exit('No stable signing identity. With user approval, run scripts/sign-app.py APP --create-identity once, or set CAPTIONFLOW_SIGNING_IDENTITY. Ad-hoc signing invalidates privacy grants after each rebuild.')
         der = subprocess.check_output(['/usr/bin/openssl', 'x509', '-in', str(certificate), '-outform', 'DER'])
         identity = hashlib.sha1(der).hexdigest()
+        sign_nested_runtime(app, identity, keychain)
         run('/usr/bin/codesign', '--force', '--sign', identity, '--keychain', str(keychain), '--timestamp=none', str(app))
         run('/usr/bin/codesign', '--verify', '--strict', str(app))
         print('Signed with the persistent CaptionFlow development identity.')

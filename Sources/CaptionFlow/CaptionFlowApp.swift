@@ -306,7 +306,10 @@ struct InspectorView: View {
     private var models: some View {
         Group {
             Section("Local inference") {
-                Label(state.installed ? "Local runtime installed" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
+                Label(state.installed ? "Ready to listen" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
+                if WorkerBridge.bundledPython(in: Bundle.main.resourceURL) != nil {
+                    Text("Everything needed to run is included. Choose your languages and start listening. Missing models download on first use when online participation is enabled.").font(.caption).foregroundStyle(.secondary)
+                }
                 if state.busy { ProgressView().controlSize(.small); Text(state.phase).font(.caption).foregroundStyle(.secondary) }
                 if !state.installed {
                     Text(Preferences.supportsMLX ? "Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac." : "Install a private CPU runtime using an Intel Python 3.11+ installation. Setup downloads the speech and translation models; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)

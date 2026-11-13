@@ -1,0 +1,53 @@
+{
+  "version": "0.4.5",
+  "date": "2026-11-13",
+  "scope": "self-contained drag-to-Applications DMGs",
+  "tests_per_architecture": {
+    "swift": 42,
+    "worker_python": 11,
+    "macos_runtime_routing": 3
+  },
+  "notarized": false,
+  "signing": "persistent CaptionFlow Local Development identity; nested runtime code signed before the app",
+  "packages": [
+    {
+      "architecture": "arm64",
+      "version": "0.4.5",
+      "minimum_macos": "26.0",
+      "dmg_verified": true,
+      "finder_layout_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_python_verified": true,
+      "external_python_required": false,
+      "downloads_during_inference": false,
+      "source": "The train leaves at 9 tomorrow morning.",
+      "translation": "Le train part à 9 heures demain matin.",
+      "inference_seconds": 9.75,
+      "execution": "native Apple Silicon",
+      "sha256": "7adec76220e1b5ece2729cc9bc511be9caaee65c28c7f775a99f5c0dd2081e6b",
+      "size": 327760830
+    },
+    {
+      "architecture": "x86_64",
+      "version": "0.4.5",
+      "minimum_macos": "14.0",
+      "dmg_verified": true,
+      "finder_layout_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_python_verified": true,
+      "external_python_required": false,
+      "downloads_during_inference": false,
+      "source": "the train leaves at nine tomorrow morning",
+      "translation": "Le train part à neuf heures demain matin",
+      "inference_seconds": 14.54,
+      "execution": "Rosetta on Apple Silicon",
+      "sha256": "afb61a4de923cfa531dd10caab988dc029bf856da3b4c20fc53e2398d36cf65b",
+      "size": 32376529
+    }
+  ],
+  "limitations": [
+    "Intel executed under Rosetta, not on physical Intel hardware.",
+    "No live microphone or system-audio capture was retested.",
+    "Installer Finder layout verified from disk-image metadata; native visual automation remained unavailable."
+  ]
+}

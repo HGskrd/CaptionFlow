@@ -30,7 +30,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleName</key><string>CaptionFlow</string>
 <key>CFBundleDisplayName</key><string>CaptionFlow</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.4.4</string>
+<key>CFBundleShortVersionString</key><string>0.4.5</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSMicrophoneUsageDescription</key><string>CaptionFlow listens to your microphone to create private, on-device subtitles.</string>
@@ -38,6 +38,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>
 PLIST
+if [ -n "${APP_ICON:-}" ]; then
+    cp "$APP_ICON" "$APP/Contents/Resources/CaptionFlow.icns"
+    /usr/libexec/PlistBuddy -c 'Add :CFBundleIconFile string CaptionFlow.icns' "$APP/Contents/Info.plist"
+fi
+if [ -n "${BUNDLED_PYTHON:-}" ]; then
+    rm -rf "$APP/Contents/Resources/python"
+    ditto "$BUNDLED_PYTHON" "$APP/Contents/Resources/python"
+    if [ "$ARCH" = arm64 ]; then
+        # The pinned MLX wheels require macOS 26 even though the Swift shell targets 14.
+        /usr/libexec/PlistBuddy -c 'Set :LSMinimumSystemVersion 26.0' "$APP/Contents/Info.plist"
+    fi
+fi
 "$PYTHON" scripts/sign-app.py "$APP"
 codesign --verify --deep --strict "$APP"
 lipo "$APP/Contents/MacOS/CaptionFlow" -verify_arch "$ARCH"

@@ -191,5 +191,31 @@
         }
       }
     ]
-  }
+  },
+  "deployed_updates": [
+    {
+      "platform": "windows-x86_64",
+      "version": "0.4.6",
+      "sequence": 10,
+      "signature_verified": true,
+      "component_download_verified": true,
+      "client_user_agent": "CaptionFlow-Updater"
+    },
+    {
+      "platform": "macos-aarch64",
+      "version": "0.4.6",
+      "sequence": 10,
+      "signature_verified": true,
+      "component_download_verified": true,
+      "client_user_agent": "CaptionFlow-Updater"
+    },
+    {
+      "platform": "macos-x86_64",
+      "version": "0.4.6",
+      "sequence": 10,
+      "signature_verified": true,
+      "component_download_verified": true,
+      "client_user_agent": "CaptionFlow-Updater"
+    }
+  ]
 }

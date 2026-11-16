@@ -18,6 +18,8 @@ The packager produces deterministic app, worker, Python and native-runtime archi
 
 Upload the ZIP files to `/var/lib/captionflow/releases` on `hetzner`, owned by `captionflow`. Upload `gpui-PLATFORM.json` last using an atomic rename. The service exposes these separately at `https://h.gskrd.me/apps/captionflow/v2/releases/PLATFORM`; legacy v1 updates remain separate. Verify HTTPS manifests and an actual component download after deployment. Component archives stay out of GitHub's user-facing download list.
 
+The Cloudflare tunnel carries HTTP traffic; the `hetzner` SSH alias connects directly to the origin. SSH is rate limited, so reuse a connection with `ControlMaster=auto`, `ControlPersist=600` and `ControlPath=/tmp/captionflow-updates-%C` for SSH, SCP and rsync. Production HTTP checks must send the app's `User-Agent: CaptionFlow-Updater`; Cloudflare can reject the default Python user agent even while app requests succeed.
+
 ## Windows publisher signing
 
 The workflow supports [Microsoft Artifact Signing](https://github.com/Azure/artifact-signing-action) using GitHub OIDC. No signing account is configured yet. The Ed25519 update signature authenticates updates; Windows also needs a trusted publisher signature for its publisher display.

@@ -636,6 +636,24 @@ fn leave_installation_directory(stage: &Path) -> Result<()> {
     std::env::set_current_dir(stage)?;
     Ok(())
 }
+#[cfg(windows)]
+fn preserve_uninstaller(root: &Path, app: &Path) -> Result<()> {
+    // NSIS creates this at install time, so it is absent from the component
+    // archives. Keep the installed uninstaller when replacing the app tree.
+    let existing = root.join("Uninstall.exe");
+    let destination = app.join("Uninstall.exe");
+    if !destination.exists() {
+        match fs::symlink_metadata(&existing) {
+            Ok(info) if info.file_type().is_file() => {
+                fs::copy(existing, destination)?;
+            }
+            Ok(_) => return Err("The installed uninstaller is not a regular file".into()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(())
+}
 fn retire_installation(root: &Path, backup: &Path) -> std::io::Result<()> {
     for attempt in 0..50 {
         match fs::rename(root, backup) {
@@ -692,6 +710,8 @@ pub fn run_helper() -> bool {
         )?;
         let app = stage.join(root.file_name().unwrap());
         verify_tree(&app, &manifest)?;
+        #[cfg(windows)]
+        preserve_uninstaller(&root, &app)?;
         let backup = stage.join("previous");
         retire_installation(&root, &backup)?;
         if let Err(error) = fs::rename(&app, &root) {
@@ -742,9 +762,14 @@ mod tests {
             );
             assert!(fs::rename(&root, stage.join("locked")).is_err());
             leave_installation_directory(&stage).unwrap();
+            preserve_uninstaller(&root, &stage.join("CaptionFlow")).unwrap();
             retire_installation(&root, &stage.join("previous")).unwrap();
             fs::rename(stage.join("CaptionFlow"), &root).unwrap();
             assert_eq!(fs::read(root.join("version")).unwrap(), b"new");
+            assert_eq!(
+                fs::read(root.join("Uninstall.exe")).unwrap(),
+                b"installed uninstaller"
+            );
             assert_eq!(fs::read(stage.join("previous/version")).unwrap(), b"old");
             return;
         }
@@ -755,6 +780,7 @@ mod tests {
         fs::create_dir_all(&root).unwrap();
         fs::create_dir_all(stage.join("CaptionFlow")).unwrap();
         fs::write(root.join("version"), b"old").unwrap();
+        fs::write(root.join("Uninstall.exe"), b"installed uninstaller").unwrap();
         fs::write(stage.join("CaptionFlow/version"), b"new").unwrap();
         let status = Command::new(std::env::current_exe().unwrap())
             .args([

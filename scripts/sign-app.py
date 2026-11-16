@@ -35,7 +35,7 @@ def sign_nested_runtime(app, identity, keychain=None, runtime_only=False):
         # runtime download even when none of its dependencies changed.
         if len(identity) == 40 and all(character in '0123456789abcdefABCDEF' for character in identity):
             valid = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--test-requirement',
-                                    'certificate leaf = H"' + identity + '"', str(path)],
+                                    '=certificate leaf = H"' + identity + '"', str(path)],
                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             if valid.returncode == 0:
                 continue

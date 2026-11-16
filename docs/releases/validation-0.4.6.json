@@ -45,23 +45,25 @@
     {
       "architecture": "arm64",
       "version": "0.4.6",
-      "minimum_macos": "26.0",
       "dmg_verified": true,
-      "relocated_signature_verified": true,
-      "bundled_worker_matches": true,
+      "installed_signature_verified": true,
       "bundled_python_verified": true,
       "gpui_preview_shutdown_exit": 0,
+      "runtime_identical_to_cache": true,
+      "runtime_unchanged_after_signing": true,
+      "runtime_files": 26757,
       "execution": "native"
     },
     {
       "architecture": "x86_64",
       "version": "0.4.6",
-      "minimum_macos": "14.0",
       "dmg_verified": true,
-      "relocated_signature_verified": true,
-      "bundled_worker_matches": true,
+      "installed_signature_verified": true,
       "bundled_python_verified": true,
       "gpui_preview_shutdown_exit": 0,
+      "runtime_identical_to_cache": true,
+      "runtime_unchanged_after_signing": true,
+      "runtime_files": 4001,
       "execution": "Rosetta"
     }
   ],
@@ -69,7 +71,9 @@
     "unchanged_runtime_reused": true,
     "signed_swap_and_relaunch_verified": true,
     "tampered_stage_rejected": true,
-    "windows_directory_lock_regression": "Child process inherits the install directory, confirms the Windows rename lock, then leaves it and verifies staged replacement with the previous install retained."
+    "windows_directory_lock_regression": "Child process inherits the install directory, confirms the Windows rename lock, then leaves it and verifies staged replacement with the previous install retained.",
+    "actual_macos_python_archive_identical_across_rebuilds": true,
+    "windows_directory_lock_and_uninstaller_test_passed": true
   },
   "installed_arm64_offline_inference": {
     "architecture": "arm64",
@@ -87,8 +91,8 @@
     "execution": "native Apple Silicon"
   },
   "windows_ci": {
-    "url": "https://github.com/HGskrd/CaptionFlow/actions/runs/43868724023",
-    "tested_commit": "881de7c",
+    "url": "https://github.com/HGskrd/CaptionFlow/actions/runs/43872786508",
+    "tested_commit": "6452b84ae17a6fc7adca993a82207fbc8053eab5",
     "conclusion": "success",
     "gpui": {
       "preview": true,
@@ -99,10 +103,10 @@
       {
         "model": "phonon",
         "backend": "cpu",
-        "load_seconds": 8.058213499999965,
+        "load_seconds": 11.246330900000032,
         "direct_inference_seconds": [
-          0.41830419999996593,
-          0.42322359999991477
+          0.20062539999997853,
+          0.19096839999997428
         ],
         "worker": {
           "status": "ok",
@@ -129,7 +133,7 @@
             "backend": "cpu",
             "runtime_version": "fermion-research 0.2.15",
             "runtime_details": {
-              "runtime": "cpu: C encoder (packed int8) + C TDT loop, avx2 tier",
+              "runtime": "cpu: C encoder (packed int8) + C TDT loop, avx512-vnni tier",
               "activations": "float32",
               "threads": 4,
               "c_tdt_loop": true,
@@ -138,18 +142,18 @@
             "translation_gpu_layers": null,
             "streaming": false
           },
-          "load_seconds": 2.7144852999999785,
+          "load_seconds": 2.9577062000000183,
           "partial": false,
-          "elapsed_seconds": 6.696351200000095,
-          "drain_seconds": 0.5314313000000084,
+          "elapsed_seconds": 6.573564599999997,
+          "drain_seconds": 0.40897760000001426,
           "realtime_factor": null,
-          "first_text_seconds": 0.6912050000000818,
+          "first_text_seconds": 0.6540382000000022,
           "final_lag_seconds": {
             "count": 1,
-            "p50": 0.5136093000000983,
-            "p95": 0.5136093000000983,
-            "p99": 0.5136093000000983,
-            "max": 0.5136093000000983
+            "p50": 0.2679994000000079,
+            "p95": 0.2679994000000079,
+            "p99": 0.2679994000000079,
+            "max": 0.2679994000000079
           },
           "translation_lag_seconds": {
             "count": 0,
@@ -161,29 +165,29 @@
           "missing_final_captions": 0,
           "missing_final_translations": 0,
           "word_error_rate": 0.2222222222222222,
-          "revision_erasure_ratio": 0.2608695652173913,
+          "revision_erasure_ratio": 0.2916666666666667,
           "backlog_seconds": {
             "count": 9,
             "p50": 0.0,
-            "p95": 3.4799999999999978,
-            "p99": 5.335999999999999,
-            "max": 5.8
+            "p95": 0.0,
+            "p99": 0.0,
+            "max": 0.0
           },
-          "backlog_growth_seconds_per_second": 0.3925120767714932,
-          "worker_tree_peak_rss_bytes": 927789056,
-          "rss_growth_bytes_per_second": -42274814.433768116,
+          "backlog_growth_seconds_per_second": 0.0,
+          "worker_tree_peak_rss_bytes": 923803648,
+          "rss_growth_bytes_per_second": 4451719.380422179,
           "cpu_percent": {
-            "count": 13,
-            "p50": 260.7,
-            "p95": 356.09999999999997,
-            "p99": 376.5,
-            "max": 381.6
+            "count": 12,
+            "p50": 176.8,
+            "p95": 275.18499999999995,
+            "p99": 313.59700000000004,
+            "max": 323.2
           },
           "capture_drops": null,
           "transport_drops": 0,
           "source_events": 9,
           "translation_quality": null,
-          "realtime_gate": false
+          "realtime_gate": true
         }
       }
     ]

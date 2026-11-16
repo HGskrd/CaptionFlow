@@ -1,0 +1,61 @@
+name: Sign Windows executable
+description: Optional Microsoft Artifact Signing with GitHub OIDC
+inputs:
+  files:
+    required: true
+    description: Absolute executable paths
+  enabled:
+    required: true
+    description: Set to true only after completing identity and OIDC setup
+  client-id:
+    required: false
+    description: Azure application client ID
+  tenant-id:
+    required: false
+    description: Azure tenant ID
+  subscription-id:
+    required: false
+    description: Azure subscription ID
+  endpoint:
+    required: false
+    description: Regional Artifact Signing endpoint
+  account:
+    required: false
+    description: Signing account name
+  profile:
+    required: false
+    description: Public Trust certificate profile
+runs:
+  using: composite
+  steps:
+    - name: Azure login
+      if: inputs.enabled == 'true'
+      uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2
+      with:
+        client-id: ${{ inputs.client-id }}
+        tenant-id: ${{ inputs.tenant-id }}
+        subscription-id: ${{ inputs.subscription-id }}
+    - name: Sign and timestamp
+      if: inputs.enabled == 'true'
+      uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2
+      with:
+        endpoint: ${{ inputs.endpoint }}
+        signing-account-name: ${{ inputs.account }}
+        certificate-profile-name: ${{ inputs.profile }}
+        files: ${{ inputs.files }}
+        file-digest: SHA256
+        timestamp-rfc3161: http://timestamp.acs.microsoft.com
+        timestamp-digest: SHA256
+    - name: Verify publisher signature
+      if: inputs.enabled == 'true'
+      shell: pwsh
+      env:
+        SIGNED_FILES: ${{ inputs.files }}
+      run: |
+        foreach ($file in ($env:SIGNED_FILES -split '[,\r\n]+' | Where-Object { $_.Trim() })) {
+          $signature = Get-AuthenticodeSignature $file.Trim()
+          if ($signature.Status -ne 'Valid' -or $null -eq $signature.TimeStamperCertificate) {
+            throw "Missing valid timestamped publisher signature: $file"
+          }
+          Write-Host "$($signature.SignerCertificate.Subject): $file"
+        }

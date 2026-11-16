@@ -34,6 +34,7 @@ class LlamaTranslator:
                    "--n-gpu-layers", "0" if configuration.get("gpu", -1) < 0 else "99",
                    "--offline", "--log-verbosity", "4"]
         self.gpu_layers = None
+        self.offload_parsed = threading.Event()
         if configuration.get("gpu", -1) < 0:
             command += ["--device", "none", "--threads", str(configuration.get("translation_threads", 2)),
                         "--threads-batch", str(configuration.get("translation_threads", 2))]
@@ -41,7 +42,7 @@ class LlamaTranslator:
             command += ["--device", configuration["llama_device"]]
         self.process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, text=True,
-                                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                                        creationflags=(subprocess.CREATE_NO_WINDOW | (subprocess.BELOW_NORMAL_PRIORITY_CLASS if configuration.get("gpu", -1) < 0 else 0)) if os.name == "nt" else 0)
         if os.name == "nt":
             self._own_windows_process()
         threading.Thread(target=self._read_logs, daemon=True).start()
@@ -54,8 +55,11 @@ class LlamaTranslator:
                 try:
                     with self.request("/health", timeout=1) as response:
                         if json.load(response).get("status") == "ok":
-                            if configuration.get("gpu", -1) >= 0 and not self.gpu_layers:
-                                raise RuntimeError("Translation runtime did not confirm GPU layer offload; select CPU explicitly or export diagnostics")
+                            if configuration.get("gpu", -1) >= 0:
+                                # Health and stdout are independent streams. Give the
+                                # log reader the remaining startup budget to catch up.
+                                if not self.offload_parsed.wait(max(0, deadline - time.monotonic())) or not self.gpu_layers:
+                                    raise RuntimeError("Translation runtime did not confirm GPU layer offload; select CPU explicitly or export diagnostics")
                             return
                 except (OSError, urllib.error.URLError, TimeoutError):
                     time.sleep(0.1)
@@ -71,8 +75,11 @@ class LlamaTranslator:
                 match = re.search(r"offloaded (\d+)/(\d+) layers", line)
                 if match:
                     self.gpu_layers = int(match.group(1))
+                    self.offload_parsed.set()
         except (OSError, ValueError):
             pass
+        finally:
+            self.offload_parsed.set()
 
     def _own_windows_process(self):
         # A worker crash/TerminateProcess must not leave a resident model server.

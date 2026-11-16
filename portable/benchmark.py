@@ -136,7 +136,7 @@ def trial(config, fixture_path, duration, mode, cancelled=None, checkpoint=None)
                 except (psutil.Error, OSError):
                     return
         monitor_thread = threading.Thread(target=monitor, daemon=True); monitor_thread.start()
-        tracker = AudioInbox(float(config.get("silence_threshold", .008)))
+        tracker = AudioInbox(float(config.get("silence_threshold", .008)), tracking_only=True)
         boundaries = {}
         began = time.monotonic()
         last_source[0] = began

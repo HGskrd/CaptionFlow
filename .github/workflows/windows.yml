@@ -1,13 +1,85 @@
 name: Windows installer
 on:
   workflow_dispatch:
+    inputs:
+      diagnose_run:
+        description: Diagnose an existing Windows package run instead of building (optional)
+        required: false
+        type: string
+      gpui_run:
+        description: Reuse a GPUI-Windows artifact from a prior run with identical GPUI sources (optional)
+        required: false
+        type: string
   push:
     branches: [main]
     tags: ['v*']
 permissions:
   contents: read
 jobs:
+  gpui:
+    if: inputs.diagnose_run == ''
+    runs-on: windows-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Verify reusable GPUI sources
+        if: inputs.gpui_run != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.gpui_run }}
+        run: |
+          $source = gh api "repos/${{ github.repository }}/actions/runs/$env:SOURCE_RUN" --jq .head_sha
+          if ($LASTEXITCODE -ne 0) { throw 'Unknown source build' }
+          git fetch origin $source --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify source commit' }
+          git diff --exit-code $source HEAD -- gpui/src gpui/Cargo.toml gpui/Cargo.lock portable/resources/CaptionFlow.ico Sources/CaptionFlow/Resources/worker/release.json
+          if ($LASTEXITCODE -ne 0) { throw 'GPUI inputs changed; a new build is required' }
+      - uses: actions/download-artifact@v8.0.2
+        if: inputs.gpui_run != ''
+        with:
+          name: GPUI-Windows
+          path: gpui/target/release
+          run-id: ${{ inputs.gpui_run }}
+          github-token: ${{ github.token }}
+      - name: Build GPUI
+        if: inputs.gpui_run == ''
+        shell: pwsh
+        working-directory: gpui
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal
+          cargo +1.98.0 test --locked
+          if ($LASTEXITCODE -ne 0) { throw 'GPUI tests failed' }
+          cargo +1.98.0 build --release --locked
+          if ($LASTEXITCODE -ne 0) { throw 'GPUI build failed' }
+      - name: Embed Windows activation manifest
+        shell: pwsh
+        run: |
+          $mt = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Filter mt.exe -Recurse | Where-Object { $_.FullName -match '\\x64\\mt.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1
+          if ($null -eq $mt) { throw 'Windows SDK manifest tool missing' }
+          $exe = "$PWD\gpui\target\release\CaptionFlowGPUI.exe"
+          & $mt.FullName -nologo -manifest "$PWD\gpui\windows.manifest" "-outputresource:$exe;#1"
+          if ($LASTEXITCODE -ne 0) { throw 'Manifest embedding failed' }
+      - uses: ./.github/actions/sign-windows
+        with:
+          files: ${{ github.workspace }}\gpui\target\release\CaptionFlowGPUI.exe
+          enabled: ${{ vars.WINDOWS_SIGNING_ENABLED }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          account: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          profile: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: GPUI-Windows
+          path: gpui/target/release/CaptionFlowGPUI.exe
   build:
+    if: inputs.diagnose_run == ''
+    needs: gpui
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
@@ -25,8 +97,15 @@ jobs:
           done
           sudo apt-get update -qq -o Dir::Etc::sourcelist=sources.list.d/ubuntu.sources -o Dir::Etc::sourceparts=- -o Acquire::Retries=1 -o Acquire::https::Timeout=30
           sudo apt-get install -y --no-install-recommends -o Acquire::Retries=1 -o Acquire::https::Timeout=30 -o Acquire::http::Timeout=30 nsis gcc-mingw-w64-x86-64-posix
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: GPUI-Windows
+          path: dist
       - run: python scripts/build-windows.py
-      - run: makensis -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup.exe" packaging/windows.nsi
+      - name: Build installer
+        run: |
+          VERSION=$(python -c 'import json; print(json.load(open("Sources/CaptionFlow/Resources/worker/release.json"))["version"])')
+          makensis -DVERSION="$VERSION" -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup.exe" packaging/windows.nsi
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: CaptionFlow-Windows
@@ -34,15 +113,29 @@ jobs:
             dist/CaptionFlow-Setup.exe
             dist/CaptionFlow-Windows-x64.zip
   test:
+    if: inputs.diagnose_run == ''
     timeout-minutes: 15
     needs: build
     runs-on: windows-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/download-artifact@v8.0.2
         with:
           name: CaptionFlow-Windows
           path: dist
+      - uses: ./.github/actions/sign-windows
+        with:
+          files: ${{ github.workspace }}\dist\CaptionFlow-Setup.exe
+          enabled: ${{ vars.WINDOWS_SIGNING_ENABLED }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          account: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          profile: ${{ vars.WINDOWS_SIGNING_PROFILE }}
       - name: Install and launch
         shell: pwsh
         run: |
@@ -51,9 +144,23 @@ jobs:
           $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
           & "$install\python\python.exe" "$install\portable\launch.py" --smoke-test --data "$env:TEMP\CaptionFlow-smoke"
           if ($LASTEXITCODE -ne 0) { Get-Content "$env:TEMP\CaptionFlow-smoke\launcher.log"; throw 'Launch failed' }
+          $env:CAPTIONFLOW_SMOKE_EVIDENCE="$PWD\dist\gpui-smoke.json"
+          $env:RUST_BACKTRACE='1'
+          $gpui = Start-Process -FilePath "$install\CaptionFlowGPUI.exe" -ArgumentList '--smoke-test' -PassThru -RedirectStandardOutput "$PWD\dist\gpui-stdout.log" -RedirectStandardError "$PWD\dist\gpui-stderr.log"
+          if (-not $gpui.WaitForExit(60000)) { $gpui.Kill(); throw 'GPUI launch timed out' }
+          if ($gpui.ExitCode -ne 0) { Get-Content dist\gpui-stderr.log; throw "GPUI launch failed: $($gpui.ExitCode)" }
+          $smoke=Get-Content dist\gpui-smoke.json | ConvertFrom-Json
+          if (-not $smoke.preview -or -not $smoke.shutdown_received -or $smoke.original_characters -lt 1) { throw 'GPUI backend did not preview and shut down' }
+          Remove-Item Env:CAPTIONFLOW_SMOKE_EVIDENCE
           Copy-Item "$install\portable\caption_audio.dll" portable\caption_audio.dll
           & "$install\python\python.exe" -m unittest discover -s tests_portable -v
           if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: CaptionFlow-Windows-verified
+          path: |
+            dist/CaptionFlow-Setup.exe
+            dist/CaptionFlow-Windows-x64.zip
       - name: Phonon offline inference and live replay
         shell: pwsh
         run: |
@@ -64,9 +171,40 @@ jobs:
         if: always()
         with:
           name: Windows-model-evidence
-          path: dist/phonon-windows.json
+          path: |
+            dist/phonon-windows.json
+            dist/gpui-smoke.json
+            dist/gpui-stdout.log
+            dist/gpui-stderr.log
   mac:
+    if: inputs.diagnose_run == ''
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7.0.1
       - run: swift test
+  diagnose:
+    if: inputs.diagnose_run != ''
+    permissions:
+      contents: read
+      actions: read
+    runs-on: windows-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: GPUI-Windows
+          path: dist
+          run-id: ${{ inputs.diagnose_run }}
+          github-token: ${{ github.token }}
+      - name: Inspect Windows loader imports
+        shell: pwsh
+        run: |
+          python -m pip install pefile
+          python scripts/check-windows-imports.py dist/CaptionFlowGPUI.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Import inspection failed' }
+      - uses: actions/upload-artifact@v7.0.2
+        if: always()
+        with:
+          name: Windows-startup-diagnostics
+          path: dist/imports.json

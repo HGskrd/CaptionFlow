@@ -106,13 +106,14 @@ def build(output, offline_models=False):
         shutil.copy2(downloads / name, data / name)
     if offline_models:
         shutil.copytree(ROOT / 'dist/portable-data/models', staging / 'portable/data/models')
+    shutil.copy2(ROOT / 'dist/CaptionFlowGPUI.exe', staging / 'CaptionFlowGPUI.exe')
     # Setup will rebuild absolute configuration paths on the recipient's machine.
     launcher = [
         '@echo off', 'cd /d "%~dp0"',
         'set "CAPTIONFLOW_DATA=%~dp0portable\\data"',
         'if exist "%LOCALAPPDATA%\\CaptionFlow\\network-consent.json" set "CAPTIONFLOW_DATA=%LOCALAPPDATA%\\CaptionFlow"',
         'if not exist "%CAPTIONFLOW_DATA%" mkdir "%CAPTIONFLOW_DATA%"',
-        '"python\\python.exe" -u "portable\\launch.py" --data "%CAPTIONFLOW_DATA%"',
+        'start "" "CaptionFlowGPUI.exe"',
         'if errorlevel 1 (echo CaptionFlow could not start. See "%CAPTIONFLOW_DATA%\\launcher.log" & pause)',
     ]
     (staging / 'Start CaptionFlow.cmd').write_bytes(('\r\n'.join(launcher)+'\r\n').encode('utf-8'))

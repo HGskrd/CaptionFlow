@@ -99,15 +99,16 @@ def qwen_language(value):
 
 class AudioInbox:
     """Bounded live backlog; coalesces revisions rather than queuing every frame."""
-    def __init__(self, threshold, streaming=False):
+    def __init__(self, threshold, streaming=False, observer=None, tracking_only=False):
         import numpy as np
         self.np = np
         self.threshold = threshold
         self.condition = threading.Condition()
-        self.jobs = collections.deque(maxlen=3)
+        self.jobs = collections.deque()
         self.stream_jobs = collections.deque()
         self.queued_samples = 0
         self.streaming = streaming
+        self.tracking_only = tracking_only
         self.frames = []
         self.preroll = collections.deque(maxlen=2)
         self.size = 0
@@ -116,12 +117,17 @@ class AudioInbox:
         self.utterance = 0
         self.closed = False
         self.error = None
+        self.observer = observer
+        self.total_samples = 0
+        self.utterance_ranges = collections.OrderedDict()
 
     def feed(self, pcm):
         np = self.np
         frame = np.frombuffer(pcm, dtype="<f4").copy()
         if len(frame) == 0 or len(frame) > 16000 or not np.all(np.isfinite(frame)):
             return
+        self.total_samples += len(frame)
+        if self.observer: self.observer(frame)
         voiced = float(np.sqrt(np.mean(frame * frame))) >= self.threshold
         started = not self.frames
         if started:
@@ -133,27 +139,34 @@ class AudioInbox:
             self.preroll.clear()
         self.frames.append(frame)
         self.size += len(frame)
+        self.utterance_ranges[self.utterance] = ((self.total_samples - self.size) / 16000, self.total_samples / 16000)
+        while len(self.utterance_ranges) > 256: self.utterance_ranges.popitem(last=False)
         self.since_update += len(frame)
         self.silent = 0 if voiced else self.silent + len(frame)
         final = self.silent >= 12800 or self.size >= 192000
-        if self.streaming:
+        if self.streaming and not self.tracking_only:
             chunk = self.np.concatenate(self.frames) if started else frame
             with self.condition:
                 self.enqueue_stream(chunk, final)
-        if not self.streaming and (self.since_update >= 9600 or final):
+        if not self.streaming and not self.tracking_only and (self.since_update >= 9600 or final):
             self.publish(final)
         if final:
             self.frames = []; self.size = 0; self.silent = 0; self.since_update = 0
             self.utterance += 1
 
     def publish(self, final):
-        if self.streaming or not self.frames:
+        if self.tracking_only or self.streaming or not self.frames:
             return
         samples = self.np.concatenate(self.frames)
         with self.condition:
-            if self.jobs and self.jobs[-1][0] == self.utterance:
+            replacing = bool(self.jobs and self.jobs[-1][0] == self.utterance)
+            retained = self.queued_samples - (len(self.jobs[-1][1]) if replacing else 0)
+            if retained + len(samples) > 25 * 16000:
+                raise RuntimeError("Speech recognition fell more than 25 seconds behind live audio.")
+            if replacing:
                 self.jobs.pop()
             self.jobs.append((self.utterance, samples, final))
+            self.queued_samples = retained + len(samples)
             self.condition.notify()
         self.since_update = 0
 
@@ -190,8 +203,8 @@ class AudioInbox:
             self.condition.wait_for(lambda: self.jobs or self.closed)
             if not self.jobs:
                 return None
-            job = self.jobs.pop()
-            self.jobs.clear()
+            job = self.jobs.popleft()
+            self.queued_samples -= len(job[1])
             return job
 
     def next_stream(self):
@@ -363,6 +376,7 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
         import mlx_whisper
     last_text = None
     last_utterance = None
+    last_final = False
     while (job := inbox.next()) is not None:
         utterance, samples, final = job
         start = time.monotonic()
@@ -397,10 +411,11 @@ def run_snapshot_speech(inbox, engine, model, model_path, source_language, publi
             result = model.generate(mx.array(samples, dtype=mx.float32))
             text = " ".join(result.text.split())
             language = getattr(result, "language", None) or source_language
-        if not text or (text == last_text and utterance == last_utterance and not final):
+        if not text or (text == last_text and utterance == last_utterance and (not final or last_final)):
             continue
         last_text = text
         last_utterance = utterance
+        last_final = final
         publish(utterance, text, language, final, time.monotonic() - start)
 
 
@@ -459,8 +474,17 @@ def main():
             # Compile the small-model Metal kernels before capture starts.
             import mlx.core as mx
             speech_model.generate(mx.zeros(16000, dtype=mx.float32))
+    diarization = None
+    if native and configuration.get("diarization_model"):
+        emit("status", message="Loading optional speaker detection model…")
+        try:
+            from diarization import LiveDiarization, resolve_model as resolve_diarization
+            diarization_path = resolve_diarization(configuration["diarization_model"], cache_dir, allow, lambda message: emit("status", message=message))
+            diarization = LiveDiarization(speech_model.lib, diarization_path, int(configuration.get("gpu", -1)), emit)
+        except Exception as error:
+            emit("status", message=f"Speaker detection unavailable; captions continue: {error}")
     targets = list(dict.fromkeys(configuration.get("targets", [])))
-    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=native or engine == "voxtral_realtime")
+    inbox = AudioInbox(float(configuration.get("silence_threshold", 0.008)), streaming=native or engine == "voxtral_realtime", observer=diarization.feed if diarization else None)
     translations = None
     if targets:
         if configuration.get("translation_backend") == "llama":
@@ -485,6 +509,8 @@ def main():
     def publish(utterance, text, language, final, latency, **metadata):
         nonlocal revision
         revision += 1
+        if diarization and utterance in inbox.utterance_ranges:
+            diarization.register(str(utterance), *inbox.utterance_ranges[utterance])
         emit("source", revision=revision, caption_id=str(utterance), text=text,
              language=language, final=final, latency=latency,
              backlog_seconds=inbox.queued_samples / 16000, **metadata)
@@ -497,6 +523,8 @@ def main():
         run_voxtral_stream(inbox, speech_model, source_language, publish, delays)
     else:
         run_snapshot_speech(inbox, engine, speech_model, speech, source_language, publish)
+    if diarization:
+        diarization.finish()
     if translations:
         translations.finish()
         if translations.error:

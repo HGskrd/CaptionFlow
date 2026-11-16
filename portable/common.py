@@ -147,6 +147,16 @@ class WorkerSession:
         for thread in self.readers:
             thread.join(timeout=2)
 
+    def cancel(self):
+        """Interrupt model loading/inference without waiting for the stdin lock."""
+        if self.process.poll() is None:
+            self.process.terminate()
+            def reap():
+                try: self.process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.process.kill(); self.process.wait(timeout=2)
+            threading.Thread(target=reap, daemon=True).start()
+
     def close(self):
         if self.process.poll() is None:
             self.process.terminate()

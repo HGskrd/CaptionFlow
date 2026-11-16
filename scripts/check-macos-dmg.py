@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix=f'captionflow-install-{args.arch}-') as 
     finally:
         subprocess.run(['hdiutil', 'detach', str(mount)], check=True, stdout=subprocess.DEVNULL)
     subprocess.run(['codesign', '--verify', '--deep', '--strict', str(app)], check=True)
-    subprocess.run(['/Library/Developer/CommandLineTools/usr/bin/lipo', str(app/'Contents/MacOS/CaptionFlow'),
+    subprocess.run(['/Library/Developer/CommandLineTools/usr/bin/lipo', str(app/'Contents/MacOS/CaptionFlowGPUI'),
                     '-verify_arch', args.arch], check=True)
     info = plistlib.loads((app/'Contents/Info.plist').read_bytes())
     expected_minimum = '26.0' if args.arch == 'arm64' else '14.0'

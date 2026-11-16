@@ -1,5 +1,6 @@
 import Foundation
 import Darwin
+import CryptoKit
 
 /// A private JSON-lines subprocess. No HTTP server or cloud inference.
 final class WorkerBridge: @unchecked Sendable {
@@ -7,32 +8,58 @@ final class WorkerBridge: @unchecked Sendable {
     private let input = Pipe()
     private let queue = DispatchQueue(label: "captionflow.worker.write")
     private let lock = NSLock()
-    private var pendingAudio: Data? // One bounded slot; never accumulate stale audio on a blocked pipe.
-    private var writingAudio = false
+    private let maximumAudioBytes: Int
+    private var queuedAudioBytes = 0
+    private var acceptingAudio = false
+    private var failed = false
+    private let readerFinished = DispatchGroup()
     var onEvent: (@Sendable ([String: Any]) -> Void)?
     var onExit: (@Sendable (String) -> Void)?
-    init() { signal(SIGPIPE, SIG_IGN) }
+    init(maximumAudioBytes: Int = 25 * 16000 * 4) {
+        self.maximumAudioBytes = maximumAudioBytes
+        signal(SIGPIPE, SIG_IGN)
+    }
     static var support: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("CaptionFlow")
     }
-    static var runtime: URL { support.appendingPathComponent(Preferences.supportsMLX ? "runtime" : "runtime-x86_64") }
+    static var runtime: URL {
+        let name = Preferences.supportsMLX ? "runtime" : "runtime-x86_64"
+        return support.appendingPathComponent(Bundle.main.bundleIdentifier == "dev.captionflow.gpui" ? "GPUI/" + name : name)
+    }
     static func bundledPython(in resources: URL?) -> URL? {
-        guard let executable = resources?.appendingPathComponent("python/bin/python3"),
-              FileManager.default.isExecutableFile(atPath: executable.path) else { return nil }
-        return executable
+        guard let path = resources?.appendingPathComponent("python/bin/python3"), FileManager.default.isExecutableFile(atPath: path.path) else { return nil }
+        return path
     }
     static var python: URL { bundledPython(in: Bundle.main.resourceURL) ?? runtime.appendingPathComponent("bin/python3") }
     static var resources: URL {
-        Bundle.main.url(forResource: "worker", withExtension: nil) ?? Bundle.module.url(forResource: "worker", withExtension: nil)!
+        if let resources = Bundle.main.url(forResource: "worker", withExtension: nil) { return resources }
+        #if SWIFT_PACKAGE
+        return Bundle.module.url(forResource: "worker", withExtension: nil)!
+        #else
+        fatalError("Missing bundled worker resources")
+        #endif
     }
     static var isInstalled: Bool {
-        bundledPython(in: Bundle.main.resourceURL) != nil ||
-        FileManager.default.fileExists(atPath: runtime.appendingPathComponent(".ready-v4").path)
+        bundledPython(in: Bundle.main.resourceURL) != nil || runtimeIsInstalled(at: runtime, requirements: resources.appendingPathComponent("requirements.txt"))
+    }
+    static func requirementsFingerprint(_ requirements: URL) throws -> Data {
+        let digest = SHA256.hash(data: try Data(contentsOf: requirements))
+        return Data(digest.map { String(format: "%02x", $0) }.joined().utf8)
+    }
+    static func runtimeIsInstalled(at runtime: URL, requirements: URL) -> Bool {
+        guard FileManager.default.isExecutableFile(atPath: runtime.appendingPathComponent("bin/python3").path),
+              let expected = try? requirementsFingerprint(requirements),
+              let actual = try? Data(contentsOf: runtime.appendingPathComponent(".requirements-sha256")) else { return false }
+        return actual == expected
     }
 
     static func install(using pythonPath: String, progress: @escaping @Sendable (String) -> Void) async throws {
         try await Task.detached {
             try FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
+            let requirements = resources.appendingPathComponent("requirements.txt")
+            let fingerprint = try requirementsFingerprint(requirements)
+            let marker = runtime.appendingPathComponent(".requirements-sha256")
+            if FileManager.default.fileExists(atPath: marker.path) { try FileManager.default.removeItem(at: marker) }
             func run(_ executable: String, _ arguments: [String]) throws {
                 let p = Process(); p.executableURL = URL(fileURLWithPath: executable); p.arguments = arguments
                 let log = Pipe(); p.standardOutput = log; p.standardError = log
@@ -49,39 +76,33 @@ final class WorkerBridge: @unchecked Sendable {
                 if p.terminationStatus != 0 { throw NSError(domain: "Runtime setup", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: tail]) }
             }
             progress("Creating a private Python environment…")
-            let architecture = Preferences.supportsMLX ? "arm64" : "x86_64"
-            try run(pythonPath, ["-c", "import platform, sys; assert sys.version_info >= (3, 11), 'Python 3.11 or newer is required'; assert platform.machine() == '\(architecture)', 'Choose a \(architecture) Python installation for this app'"])
+            try FileManager.default.createDirectory(at: runtime.deletingLastPathComponent(), withIntermediateDirectories: true)
             try run(pythonPath, ["-m", "venv", runtime.path])
-            progress("Installing local speech and translation dependencies…")
-            try run(python.path, ["-m", "pip", "install", "--disable-pip-version-check", "-r", resources.appendingPathComponent("requirements.txt").path])
-            try Data().write(to: runtime.appendingPathComponent(".ready-v4"))
+            progress("Installing MLX speech and translation dependencies…")
+            try run(python.path, ["-m", "pip", "install", "--disable-pip-version-check", "-r", requirements.path])
+            try fingerprint.write(to: marker, options: .atomic)
         }.value
     }
-    func start(configuration: [String: Any]) throws {
-        let p = Process(); p.executableURL = Self.python
-        p.arguments = ["-u", Self.resources.appendingPathComponent("worker.py").path]
+    func start(configuration: [String: Any], executable: URL = WorkerBridge.python, arguments: [String]? = nil) throws {
+        let p = Process(); p.executableURL = executable
+        p.arguments = arguments ?? ["-u", Self.resources.appendingPathComponent("worker.py").path]
         var environment = ProcessInfo.processInfo.environment
-        environment["PYTHONIOENCODING"] = "utf-8"
         environment["PYTHONUNBUFFERED"] = "1"; environment["TOKENIZERS_PARALLELISM"] = "false"
         environment["PYTHONDONTWRITEBYTECODE"] = "1" // Keep the signed resource directory immutable.
         environment["HF_HUB_DISABLE_TELEMETRY"] = "1"
         // The standard HTTPS path is more reliable on filtered networks and proxies.
         environment["HF_HUB_DISABLE_XET"] = "1"
-        environment["PYTHONNOUSERSITE"] = "1"
-        environment.removeValue(forKey: "PYTHONPATH")
-        environment.removeValue(forKey: "PYTHONHOME")
-        environment.removeValue(forKey: "VIRTUAL_ENV")
-        if let bundled = Self.bundledPython(in: Bundle.main.resourceURL) {
-            environment["SSL_CERT_FILE"] = bundled.deletingLastPathComponent().deletingLastPathComponent()
-                .appendingPathComponent("lib/python3.11/site-packages/certifi/cacert.pem").path
-        }
         p.environment = environment
         let output = Pipe(); let errors = Pipe()
         p.standardInput = input; p.standardOutput = output; p.standardError = errors
         // Consume stderr so download progress cannot fill the pipe. It is not persisted.
         errors.fileHandleForReading.readabilityHandler = { handle in _ = handle.availableData }
         try p.run(); process = p
+        lock.lock(); acceptingAudio = true; lock.unlock()
+        readerFinished.enter()
+        let readerFinished = self.readerFinished
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            defer { readerFinished.leave() }
             var buffer = Data()
             while true {
                 let data = output.fileHandleForReading.availableData
@@ -104,24 +125,74 @@ final class WorkerBridge: @unchecked Sendable {
         queue.async { [weak self] in self?.write(data + Data([10])) }
     }
     func sendAudio(_ data: Data) {
-        lock.lock(); pendingAudio = data
-        if writingAudio { lock.unlock(); return }
-        writingAudio = true; lock.unlock()
-        queue.async { [weak self] in
-            guard let self else { return }
-            while true {
-                self.lock.lock()
-                guard let audio = self.pendingAudio else { self.writingAudio = false; self.lock.unlock(); break }
-                self.pendingAudio = nil; self.lock.unlock()
-                if let message = try? JSONSerialization.data(withJSONObject: ["type": "audio", "pcm": audio.base64EncodedString()]) { self.write(message + Data([10])) }
+        lock.lock()
+        guard acceptingAudio else { lock.unlock(); return }
+        guard queuedAudioBytes + data.count <= maximumAudioBytes else {
+            acceptingAudio = false; lock.unlock()
+            reportFailure("Audio delivery fell more than 25 seconds behind. Listening stopped to avoid losing speech.")
+            return
+        }
+        queuedAudioBytes += data.count
+        // Enqueue while locked so stop cannot overtake an accepted frame.
+        queue.async { [self] in
+            defer { lock.lock(); queuedAudioBytes -= data.count; lock.unlock() }
+            do {
+                let message = try JSONSerialization.data(withJSONObject: ["type": "audio", "pcm": data.base64EncodedString()])
+                write(message + Data([10]))
+            } catch { reportFailure("Could not encode captured audio: \(error.localizedDescription)") }
+        }
+        lock.unlock()
+    }
+    private func reportFailure(_ message: String) {
+        lock.lock()
+        guard !failed else { lock.unlock(); return }
+        failed = true; acceptingAudio = false; lock.unlock()
+        onEvent?(["type": "error", "message": message])
+    }
+    private func write(_ data: Data) {
+        do { try input.fileHandleForWriting.write(contentsOf: data) }
+        catch { reportFailure("Could not deliver audio to the inference worker: \(error.localizedDescription)") }
+    }
+    private func beginFinish() -> Process? {
+        guard let p = process else { return nil }
+        lock.lock(); acceptingAudio = false
+        queue.async { [self] in
+            write(Data("{\"type\":\"stop\"}\n".utf8))
+            try? input.fileHandleForWriting.close()
+        }
+        lock.unlock()
+        return p
+    }
+    func finish(timeout: TimeInterval = 60) async throws {
+        guard let p = beginFinish() else { return }
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            DispatchQueue.global(qos: .userInitiated).async { [self] in
+                guard readerFinished.wait(timeout: .now() + timeout) == .success else {
+                    stop()
+                    _ = readerFinished.wait(timeout: .now() + 2)
+                    continuation.resume(throwing: NSError(domain: "Worker shutdown", code: 1, userInfo: [NSLocalizedDescriptionKey: "The inference worker did not finish draining within \(Int(timeout)) seconds."]))
+                    return
+                }
+                guard p.terminationStatus == 0 else {
+                    continuation.resume(throwing: NSError(domain: "Worker shutdown", code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: "The inference worker exited before shutdown completed (\(p.terminationStatus))."]))
+                    return
+                }
+                continuation.resume()
             }
         }
+        process = nil
     }
-    private func write(_ data: Data) { try? input.fileHandleForWriting.write(contentsOf: data) }
     func stop() {
+        lock.lock(); acceptingAudio = false; lock.unlock()
         onExit = nil; onEvent = nil
-        if let p = process, p.isRunning { p.terminate() }
-        try? input.fileHandleForWriting.close()
+        if let p = process, p.isRunning {
+            p.terminate()
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1) {
+                if p.isRunning { Darwin.kill(p.processIdentifier, SIGKILL) }
+            }
+        }
+        let handle = input.fileHandleForWriting
+        queue.async { try? handle.close() }
         process = nil
     }
     deinit { stop() }

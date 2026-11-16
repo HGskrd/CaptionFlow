@@ -1,5 +1,6 @@
 """Pinned compact speech checkpoints; no upstream download or telemetry clients."""
 from pathlib import Path
+import os
 
 NEMOTRON = "nvidia/nemotron-3.5-asr-streaming-0.6b"
 SPEECH_MODELS = {
@@ -49,6 +50,14 @@ class CompactCPU:
         cpu_runtime_check()
         self.identity = identity
         if identity == "phonon":
+            # Fermion's default Windows topology probe launches powershell.exe.
+            # Use the already bundled native psutil probe, then supply its documented
+            # thread override before loading so no console subprocess is needed.
+            if os.name == "nt" and not os.environ.get("FERMION_CPU_THREADS"):
+                import psutil
+                physical = psutil.cpu_count(logical=False)
+                logical = psutil.cpu_count(logical=True) or 4
+                os.environ["FERMION_CPU_THREADS"] = str(max(1, min(physical if physical and physical >= 6 else logical, 16)))
             from fermion._speech.fetch import _unpack
             from fermion._speech.engine_phonon2_cpu import load
             root = Path(path)

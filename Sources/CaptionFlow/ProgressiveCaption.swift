@@ -216,20 +216,20 @@ struct ProgressiveCaption {
                                startsCaption: false, firstPreviousTokenID: previous.first?.id)
     }
 
+    private static let sentenceTerminators = ".!?。！？؟"
     private static func endsSentence(_ word: String) -> Bool {
         guard let last = word.trimmingCharacters(in: .whitespacesAndNewlines).last else { return false }
-        return ".!?。！？؟".contains(last)
+        return sentenceTerminators.contains(last)
     }
     mutating func advanceStep() -> CaptionStep? {
         guard hasPending else { return nil }
         var startsCaption = false
         if replaceOnNextWord { visible.removeAll(); visibleIDs.removeAll(); replaceOnNextWord = false; startsCaption = true }
-        if consumed > 0, let end = hypothesis[consumed - 1].trimmingCharacters(in: .whitespacesAndNewlines).last,
-           ".!?。！？؟".contains(end) {
+        if consumed > 0, Self.endsSentence(hypothesis[consumed - 1]) {
             visible.removeAll(); visibleIDs.removeAll(); startsCaption = true
         } else if !visible.isEmpty {
             var previous = visible[visible.count - 1].trimmingCharacters(in: .whitespacesAndNewlines)
-            if let end = previous.last, ".!?。！？؟".contains(end) {
+            if let end = previous.last, Self.sentenceTerminators.contains(end) {
                 previous.removeLast()
                 visible[visible.count - 1] = previous
             }

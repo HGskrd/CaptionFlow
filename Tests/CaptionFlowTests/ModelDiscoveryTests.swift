@@ -60,7 +60,13 @@ final class ModelDiscoveryTests: XCTestCase {
         prefs.roots = ["/a cache/with spaces", "/another"]
         prefs.displayMode = .translated
         prefs.allowDownloads = false
+        prefs.speechModel = Preferences.parakeetSpeechModel
+        let encoded = try JSONEncoder().encode(prefs)
+        let stored = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        XCTAssertEqual(stored["whisperModel"] as? String, Preferences.parakeetSpeechModel)
+        XCTAssertNil(stored["speechModel"])
         let decoded = try JSONDecoder().decode(Preferences.self, from: JSONEncoder().encode(prefs))
+        XCTAssertEqual(decoded.speechModel, Preferences.parakeetSpeechModel)
         XCTAssertEqual(decoded.targets, prefs.targets)
         XCTAssertEqual(decoded.roots, prefs.roots)
         XCTAssertEqual(decoded.displayMode, .translated)

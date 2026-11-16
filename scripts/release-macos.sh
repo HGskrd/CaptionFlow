@@ -9,11 +9,12 @@ mkdir -p "$RELEASE_DIR"
 for ARCH in arm64 x86_64; do
     RUNTIME="$PWD/.build/bundled-python/$ARCH"
     "$PACKAGING_PYTHON" scripts/bundle-python.py --arch "$ARCH" --output "$RUNTIME"
+    "$PACKAGING_PYTHON" scripts/sign-app.py --runtime-only "$RUNTIME"
     ARCH="$ARCH" BUNDLED_PYTHON="$RUNTIME" APP_ICON="$ART/CaptionFlow.icns" OUTPUT_DIR="$RELEASE_DIR/$ARCH" ./scripts/build-app.sh
     APP="$RELEASE_DIR/$ARCH/CaptionFlow.app"
     VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
-    "$PACKAGING_PYTHON" scripts/build-dmg.py --app "$APP" --arch "$ARCH" --art "$ART" --output "$RELEASE_DIR/CaptionFlow-macOS-$ARCH-$VERSION.dmg"
+    "$PACKAGING_PYTHON" scripts/build-dmg.py --app "$APP" --arch "$ARCH" --art "$ART" --output "$RELEASE_DIR/CaptionFlow-macOS-$ARCH.dmg"
 done
 cd "$RELEASE_DIR"
-shasum -a 256 "CaptionFlow-macOS-arm64-$VERSION.dmg" "CaptionFlow-macOS-x86_64-$VERSION.dmg" > SHA256SUMS-macOS.txt
+shasum -a 256 "CaptionFlow-macOS-arm64.dmg" "CaptionFlow-macOS-x86_64.dmg" > SHA256SUMS-macOS.txt
 cat SHA256SUMS-macOS.txt

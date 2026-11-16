@@ -3,7 +3,6 @@
 Usage: .venv/bin/python scripts/integration_check.py SPEECH_MODEL TRANSLATION_MODEL
 Creates a deterministic spoken fixture with macOS say, never records the user.
 """
-import contextlib
 import json
 import os
 from pathlib import Path
@@ -75,6 +74,10 @@ def main():
             messages.append(json.dumps({'type': 'audio', 'pcm': base64.b64encode(pcm).decode()}))
         silence = base64.b64encode(np.zeros(3200, dtype='<f4').tobytes()).decode()
         messages.extend(json.dumps({'type': 'audio', 'pcm': silence}) for _ in range(4))
+        # Queue another utterance before recognition catches up. Both finals
+        # and their translations must survive snapshot coalescing and stop.
+        first_utterance = messages[1:]
+        messages.extend(first_utterance)
         messages.append(json.dumps({'type': 'stop'}))
         completed = subprocess.run(command, input='\n'.join(messages) + '\n', text=True,
                                    stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)
@@ -83,6 +86,11 @@ def main():
         assert any(item['type'] == 'ready' for item in output)
         assert any(item['type'] == 'source' and 'train' in item['text'].lower() for item in output), output
         assert any(item['type'] == 'translation' and item['final'] for item in output), output
+        for caption_id in ('0', '1'):
+            assert any(item['type'] == 'source' and item['caption_id'] == caption_id
+                       and item['final'] and 'train' in item['text'].lower() for item in output), output
+            assert any(item['type'] == 'translation' and item['caption_id'] == caption_id
+                       and item['final'] for item in output), output
         assert not any(item['type'] == 'error' for item in output), output
         print(json.dumps({'check': 'worker_protocol_audio_to_translation', 'events': len(output), 'result': 'passed'}))
 

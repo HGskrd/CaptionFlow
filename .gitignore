@@ -8,3 +8,4 @@ __pycache__/
 *.pyc
 .DS_Store
 portable/caption_audio.*
+gpui/target/

@@ -34,7 +34,20 @@ struct Preferences: Codable {
     static let nemotronSpeechModel = "nvidia/nemotron-3.5-asr-streaming-0.6b"
     static let reduxSpeechModel = "moondream/parakeet-redux"
     static let phononSpeechModel = "FermionResearch/Phonon-2.5"
+
+    enum CodingKeys: String, CodingKey {
+        case typeface, fontSize, foreground, background, displayMode, source, sourceLanguage, targets, roots
+        case speechModel = "whisperModel" // Preserve preferences written before the property rename.
+        case diarizationModel
+        case translationModel, allowDownloads, pythonPath, silenceThreshold
+        case voxtralDualDelay, voxtralDelayMS, voxtralCorrectionDelayMS
+        case captionFlow, captionWordLimit, captionTimeLimit
+        case captionPresentation, translationPresentation, captionVisibleLines, captionClearAfter, captionGentleAnimation
+    }
+    static let whisperSmallSpeechModel = "mlx-community/whisper-small-mlx"
+    static let parakeetSpeechModel = "mlx-community/parakeet-tdt-0.6b-v3"
     static let qwen3ASRSpeechModel = "mlx-community/Qwen3-ASR-1.7B-4bit"
+    static let voxtralSpeechModel = "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"
     static let qwen25TranslationModel = "mlx-community/Qwen2.5-1.5B-Instruct-4bit"
     static let qwen35TranslationModel = "mlx-community/Qwen3.5-0.8B-MLX-4bit"
     static let qwen35TwoBTranslationModel = "mlx-community/Qwen3.5-2B-MLX-4bit"
@@ -44,15 +57,16 @@ struct Preferences: Codable {
     var foreground = RGBA(0.96, 0.96, 0.94)
     var background = RGBA(0.065, 0.075, 0.085)
     var displayMode = DisplayMode.both
-    var source = AudioSource.mixed
+    var source = AudioSource.microphone
     var sourceLanguage = "auto"
     var targets = ["French"]
     var roots: [String] = []
-    var whisperModel = "mlx-community/whisper-small-mlx"
+    var speechModel = Self.whisperSmallSpeechModel
     var translationModel = Self.qwen25TranslationModel
+    var diarizationModel: String?
     var allowDownloads = true
     var pythonPath = Self.supportsMLX ? "/opt/homebrew/bin/python3.11" : "/usr/local/bin/python3.11"
-    var effectiveSpeechModel: String { Self.supportsMLX ? whisperModel : Self.nemotronSpeechModel }
+    var effectiveSpeechModel: String { Self.supportsMLX ? speechModel : Self.nemotronSpeechModel }
     var effectiveTranslationModel: String { Self.supportsMLX ? translationModel : "tencent/Hy-MT2-1.8B-GGUF" }
     var silenceThreshold = 0.008
     // Optional storage keeps preferences written by older builds decodable.
@@ -71,7 +85,6 @@ struct Preferences: Codable {
         return Self.voxtralDelays.contains(value) && value > effectiveVoxtralDelayMS
             ? value : (Self.voxtralDelays.first { $0 > effectiveVoxtralDelayMS } ?? 2400)
     }
-    var captionFlow: CaptionFlowMode?
     var captionPresentation: CaptionPresentation?
     var translationPresentation: CaptionPresentation?
     var captionVisibleLines: Int?
@@ -82,12 +95,17 @@ struct Preferences: Codable {
     var effectiveCaptionVisibleLines: Int { min(4, max(2, captionVisibleLines ?? 3)) }
     var effectiveCaptionClearAfter: Int { [5, 10].contains(captionClearAfter ?? 0) ? captionClearAfter! : 0 }
     var effectiveCaptionGentleAnimation: Bool { captionGentleAnimation ?? true }
+    var captionFlow: CaptionFlowMode?
     var captionWordLimit: Int?
     var captionTimeLimit: Double?
     var effectiveCaptionFlow: CaptionFlowMode { captionFlow ?? .sentence }
     var effectiveCaptionWordLimit: Int { min(60, max(3, captionWordLimit ?? 18)) }
     var effectiveCaptionTimeLimit: Double { min(20, max(1, captionTimeLimit ?? 6)) }
-    static let languages = ["English", "French", "Spanish", "German", "Italian", "Portuguese", "Dutch", "Polish", "Russian", "Ukrainian", "Arabic", "Hindi", "Chinese", "Japanese", "Korean"]
+    static var languages: [String] {
+        guard let data = try? Data(contentsOf: WorkerBridge.resources.appendingPathComponent("languages.json")),
+              let values = try? JSONDecoder().decode([String].self, from: data) else { return ["English", "French"] }
+        return values
+    }
     static func load() -> Self {
         guard let data = UserDefaults.standard.data(forKey: "preferences"), let value = try? JSONDecoder().decode(Self.self, from: data) else { return Self() }
         return value

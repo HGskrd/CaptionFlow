@@ -39,7 +39,18 @@ def main():
         for name in names:
             started = time.monotonic()
             if args.backend == "cpu":
-                model = CompactCPU(name, paths[name])
+                if os.name == "nt":
+                    import subprocess
+                    from unittest.mock import patch
+                    original_popen = subprocess.Popen
+                    def hidden_only(*args, **kwargs):
+                        if not kwargs.get('creationflags', 0) & subprocess.CREATE_NO_WINDOW:
+                            raise AssertionError('Phonon attempted to open a console subprocess')
+                        return original_popen(*args, **kwargs)
+                    with patch.object(subprocess, 'Popen', side_effect=hidden_only):
+                        model = CompactCPU(name, paths[name])
+                else:
+                    model = CompactCPU(name, paths[name])
             else:
                 import mlx.core as mx
                 from mlx_audio.stt.utils import load_model

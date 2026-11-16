@@ -19,8 +19,8 @@ def run(*args, **kwargs):
     return subprocess.run(args, check=True, **kwargs)
 
 
-def sign_nested_runtime(app, identity, keychain=None):
-    runtime = app / 'Contents/Resources/python'
+def sign_nested_runtime(app, identity, keychain=None, runtime_only=False):
+    runtime = app if runtime_only else app / 'Contents/Resources/python'
     if not runtime.exists():
         return
     magic = {bytes.fromhex(value) for value in ('feedface', 'cefaedfe', 'feedfacf', 'cffaedfe', 'cafebabe', 'bebafeca', 'cafebabf', 'bfbafeca')}
@@ -30,6 +30,15 @@ def sign_nested_runtime(app, identity, keychain=None):
         with path.open('rb') as stream:
             if stream.read(4) not in magic:
                 continue
+        # Keep a verified cached runtime byte-identical across app releases.
+        # Re-signing every dependency would turn an app-only update into a full
+        # runtime download even when none of its dependencies changed.
+        if len(identity) == 40 and all(character in '0123456789abcdefABCDEF' for character in identity):
+            valid = subprocess.run(['/usr/bin/codesign', '--verify', '--strict', '--test-requirement',
+                                    'certificate leaf = H"' + identity + '"', str(path)],
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if valid.returncode == 0:
+                continue
         command = ['/usr/bin/codesign', '--force', '--sign', identity, '--timestamp=none']
         if keychain:
             command += ['--keychain', str(keychain)]
@@ -37,10 +46,12 @@ def sign_nested_runtime(app, identity, keychain=None):
 
 
 def main():
-    app = Path(sys.argv[1]).resolve()
+    runtime_only = sys.argv[1] == "--runtime-only"
+    app = Path(sys.argv[2] if runtime_only else sys.argv[1]).resolve()
     supplied = os.environ.get('CAPTIONFLOW_SIGNING_IDENTITY')
     if supplied:
-        sign_nested_runtime(app, supplied)
+        sign_nested_runtime(app, supplied, runtime_only=runtime_only)
+        if runtime_only: return
         run('/usr/bin/codesign', '--force', '--sign', supplied, str(app))
         return
     keychain = Path.home() / 'Library/Keychains/login.keychain-db'
@@ -72,7 +83,10 @@ def main():
             sys.exit('No stable signing identity. With user approval, run scripts/sign-app.py APP --create-identity once, or set CAPTIONFLOW_SIGNING_IDENTITY. Ad-hoc signing invalidates privacy grants after each rebuild.')
         der = subprocess.check_output(['/usr/bin/openssl', 'x509', '-in', str(certificate), '-outform', 'DER'])
         identity = hashlib.sha1(der).hexdigest()
-        sign_nested_runtime(app, identity, keychain)
+        sign_nested_runtime(app, identity, keychain, runtime_only=runtime_only)
+        if runtime_only:
+            print("Verified persistent runtime signatures.")
+            return
         run('/usr/bin/codesign', '--force', '--sign', identity, '--keychain', str(keychain), '--timestamp=none', str(app))
         run('/usr/bin/codesign', '--verify', '--strict', str(app))
         print('Signed with the persistent CaptionFlow development identity.')

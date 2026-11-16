@@ -9,7 +9,7 @@ struct CaptionFlowApp: App {
     var body: some Scene {
         Window("CaptionFlow", id: "main") {
             ContentView().environmentObject(state).environmentObject(presentation)
-                .onAppear { delegate.onTerminate = { state.stop() } }
+                .onAppear { delegate.onTerminate = { await state.shutdown() } }
         }
         .defaultSize(width: 1160, height: 740)
         .commands {
@@ -18,7 +18,7 @@ struct CaptionFlowApp: App {
                     .keyboardShortcut("f", modifiers: [.control, .command])
             }
             CommandGroup(after: .newItem) {
-                Button(state.active ? "Stop Listening" : "Start Listening") { state.active ? state.stop() : state.start() }.keyboardShortcut("r")
+                Button(state.active ? "Stop Listening" : "Start Listening") { state.active ? state.stop() : state.start() }.keyboardShortcut("r").disabled(state.stopping)
                 Button("Toggle Inspector") {
                     if presentation.isFullScreen { state.fullScreenInspector.toggle() }
                     else { state.inspector.toggle() }
@@ -30,9 +30,16 @@ struct CaptionFlowApp: App {
     }
 }
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var onTerminate: (() -> Void)?
+    var onTerminate: (@MainActor () async -> Void)?
     func applicationDidFinishLaunching(_ notification: Notification) { NSApp.setActivationPolicy(.regular); NSApp.activate(ignoringOtherApps: true) }
-    func applicationWillTerminate(_ notification: Notification) { onTerminate?() }
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let onTerminate else { return .terminateNow }
+        Task { @MainActor in
+            await onTerminate()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 struct ContentView: View {
@@ -49,6 +56,7 @@ struct ContentView: View {
         .frame(minWidth: 780, minHeight: 540)
         .background(WindowAttachment(presentation: presentation).frame(width: 0, height: 0))
         .ignoresSafeArea(edges: presentation.isFullScreen ? .all : [])
+        .safeAreaInset(edge: .bottom, spacing: 0) { CommunityNotice(support: state.community) }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
                 CommunityControls(support: state.community, changeConsent: state.changeNetworkConsent)
@@ -60,7 +68,7 @@ struct ContentView: View {
                 Button { state.active ? state.stop() : state.start() } label: {
                     Label(state.active ? "Stop" : "Start listening", systemImage: state.active ? "stop.fill" : "mic.fill")
                 }
-                .buttonStyle(.borderedProminent).disabled(state.installing).help("Start or stop (⌘R)")
+                .buttonStyle(.borderedProminent).disabled(state.installing || state.stopping).help("Start or stop (⌘R)")
             }
         }
         .toolbar(presentation.isFullScreen ? .hidden : .visible, for: .windowToolbar)
@@ -85,6 +93,33 @@ struct CommunityControls: View {
             Button("Update to \(update["version"] as? String ?? "new version")") {
                 Task { await support.downloadUpdate() }
             }
+        }
+    }
+}
+struct CommunityNotice: View {
+    @ObservedObject var support: CommunitySupport
+    var body: some View {
+        if !support.status.isEmpty {
+            HStack {
+                Text(support.status).font(.callout).textSelection(.enabled)
+                Spacer()
+                Button { support.status = "" } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel("Dismiss notification")
+            }
+            .padding().frame(maxWidth: .infinity).background(.bar)
+        }
+    }
+}
+struct ModelDownloadControl: View {
+    @ObservedObject var support: CommunitySupport
+    @Binding var allowed: Bool
+    var body: some View {
+        Toggle("Download missing models", isOn: Binding(
+            get: { allowed && support.enabled }, set: { allowed = $0 }
+        )).disabled(!support.enabled)
+        if !support.enabled {
+            Text("Local-only mode disables downloads. Enable online participation under Privacy / sharing to download models.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -174,7 +209,8 @@ struct SubtitleCanvas: View {
 struct InspectorView: View {
     @EnvironmentObject private var state: AppState
     @State private var customLanguage = ""
-    private let fonts = ["System"] + NSFontManager.shared.availableFontFamilies.sorted()
+    // Built once: the inspector is re-created on every state change.
+    private static let fonts = ["System"] + NSFontManager.shared.availableFontFamilies.sorted()
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Picker("Inspector", selection: $state.tab) { Text("Style").tag("Style"); Text("Languages").tag("Languages"); Text("Models").tag("Models") }.pickerStyle(.segmented).labelsHidden().padding(16)
@@ -192,7 +228,7 @@ struct InspectorView: View {
     private var style: some View {
         Group {
             Section("Typography") {
-                Picker("Typeface", selection: $state.preferences.typeface) { ForEach(fonts, id: \.self) { Text($0).tag($0) } }
+                Picker("Typeface", selection: $state.preferences.typeface) { ForEach(Self.fonts, id: \.self) { Text($0).tag($0) } }
                 VStack(alignment: .leading, spacing: 10) {
                     HStack { Text("Size"); Spacer(); Text("\(Int(state.preferences.fontSize)) pt").foregroundStyle(.secondary).monospacedDigit() }
                     Slider(value: $state.preferences.fontSize, in: 24...120, step: 2).accessibilityLabel("Font size")
@@ -284,7 +320,7 @@ struct InspectorView: View {
                     Text("Detect automatically").tag("auto")
                     ForEach(["en", "fr", "es", "de", "it", "pt", "nl", "pl", "ru", "uk", "ar", "hi", "zh", "ja", "ko"], id: \.self) { code in Text(Locale.current.localizedString(forLanguageCode: code) ?? code).tag(code) }
                 }
-                Text(state.preferences.source == .microphone ? "Uses your Mac’s current input device." : "Captures Mac audio. Microphone + Mac audio mixes both into one transcription stream with speaker echo cancellation. macOS requires Screen & System Audio Recording access.").font(.caption).foregroundStyle(.secondary)
+                Text(state.preferences.source == .microphone ? "Uses your Mac’s current input device." : "Captures audio playing on your Mac. macOS may request Screen & System Audio Recording access.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active)
             Section("On screen") {
                 Picker("Show", selection: $state.preferences.displayMode) { ForEach(DisplayMode.allCases, id: \.self) { Text($0.rawValue).tag($0) } }
@@ -306,48 +342,41 @@ struct InspectorView: View {
     private var models: some View {
         Group {
             Section("Local inference") {
-                Label(state.installed ? "Ready to listen" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
-                if WorkerBridge.bundledPython(in: Bundle.main.resourceURL) != nil {
-                    Text("Everything needed to run is included. Choose your languages and start listening. Missing models download on first use when online participation is enabled.").font(.caption).foregroundStyle(.secondary)
-                }
+                Label(state.installed ? "MLX runtime installed" : "One-time setup", systemImage: state.installed ? "checkmark.circle.fill" : "shippingbox").foregroundStyle(state.installed ? Color.green : .primary)
                 if state.busy { ProgressView().controlSize(.small); Text(state.phase).font(.caption).foregroundStyle(.secondary) }
                 if !state.installed {
-                    Text(Preferences.supportsMLX ? "Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac." : "Install a private CPU runtime using an Intel Python 3.11+ installation. Setup downloads the speech and translation models; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)
+                    Text("Install a private MLX runtime. Internet is needed for setup and optional model downloads; audio and captions remain on your Mac.").font(.caption).foregroundStyle(.secondary)
                     TextField("Python 3.11+ path", text: $state.preferences.pythonPath).font(.caption)
                     Button(state.installing ? "Installing…" : "Install local runtime") { state.install() }.disabled(state.installing)
                     if state.installing { ProgressView().controlSize(.small); Text(state.phase).font(.caption).lineLimit(4) }
                 }
             }
-            if Preferences.supportsMLX {
-                Section("Model folders · optional") {
-                    Text("Add any number of roots. Existing MLX models are used in place, including Hugging Face snapshots.").font(.caption).foregroundStyle(.secondary)
-                    ForEach(state.preferences.roots, id: \.self) { path in
-                        HStack {
-                            Image(systemName: "folder").foregroundStyle(.secondary)
-                            VStack(alignment: .leading) { Text(URL(fileURLWithPath: path).lastPathComponent); Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(path) }
-                            Spacer()
-                            Button { state.preferences.roots.removeAll { $0 == path }; state.scan() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).accessibilityLabel("Remove \(path)")
-                        }
-                    }
+            Section("Model folders · optional") {
+                Text("Add any number of roots. Existing MLX models are used in place, including Hugging Face snapshots.").font(.caption).foregroundStyle(.secondary)
+                ForEach(state.preferences.roots, id: \.self) { path in
                     HStack {
-                        Button("Add folders…", systemImage: "folder.badge.plus") { state.addRoots() }
+                        Image(systemName: "folder").foregroundStyle(.secondary)
+                        VStack(alignment: .leading) { Text(URL(fileURLWithPath: path).lastPathComponent); Text(path).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(path) }
                         Spacer()
-                        Button { state.scan() } label: { Image(systemName: "arrow.clockwise") }.disabled(state.scanning).help("Rescan folders")
+                        Button { state.preferences.roots.removeAll { $0 == path }; state.scan() } label: { Image(systemName: "minus.circle") }.buttonStyle(.plain).accessibilityLabel("Remove \(path)")
                     }
-                    .dropDestination(for: URL.self) { urls, _ in state.addRoots(urls); return true }
-                    Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
-                }.disabled(state.active || state.installing)
-            }
+                }
+                HStack {
+                    Button("Add folders…", systemImage: "folder.badge.plus") { state.addRoots() }
+                    Spacer()
+                    Button { state.scan() } label: { Image(systemName: "arrow.clockwise") }.disabled(state.scanning).help("Rescan folders")
+                }
+                .dropDestination(for: URL.self) { urls, _ in state.addRoots(urls); return true }
+                Text(state.scanning ? "Looking for models…" : state.scanMessage).font(.caption).foregroundStyle(.secondary)
+            }.disabled(state.active || state.installing)
             Section("Models") {
-                if Preferences.supportsMLX { speechModelPicker }
-                else { LabeledContent("Speech", value: "Nemotron 3.5 · streaming") }
+                speechModelPicker
                 Text(state.speechModelNote).font(.caption).foregroundStyle(.secondary)
-                if Preferences.supportsMLX && state.usesVoxtral { voxtralSettings }
-                if Preferences.supportsMLX { translationModelPicker }
-                else { LabeledContent("Translation", value: "Hy-MT2 · 1.8B · CPU") }
+                if state.usesVoxtral { voxtralSettings }
+                translationModelPicker
                 Text(state.translationModelNote).font(.caption).foregroundStyle(.secondary)
-                Toggle("Download missing models", isOn: $state.preferences.allowDownloads)
-                Text(Preferences.supportsMLX ? "Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Nemotron uses its managed native runtime. Other custom folders must be MLX-compatible." : "Models use app-managed copies. Disable downloads for offline startup after setup. CPU inference speed depends on your Mac.").font(.caption).foregroundStyle(.secondary)
+                ModelDownloadControl(support: state.community, allowed: $state.preferences.allowDownloads)
+                Text("Leave folders empty to use app-managed copies. Disable downloads for strictly offline startup. Models must be MLX-compatible; GGUF and PyTorch-only weights are not interchangeable.").font(.caption).foregroundStyle(.secondary)
             }.disabled(state.active || state.installing)
             DisclosureGroup("Audio sensitivity") {
                 Slider(value: $state.preferences.silenceThreshold, in: 0.001...0.04).accessibilityLabel("Silence threshold")
@@ -386,17 +415,14 @@ struct InspectorView: View {
         }
     }
     private var speechModelPicker: some View {
-        Picker("Speech", selection: $state.preferences.whisperModel) {
-            Text("Nemotron 3.5 · 0.6B · streaming").tag(Preferences.nemotronSpeechModel)
-            Text("Parakeet Redux · compact · chunked").tag(Preferences.reduxSpeechModel)
-            Text("Phonon 2.5 · compact · chunked").tag(Preferences.phononSpeechModel)
-            Text("Whisper Small").tag("mlx-community/whisper-small-mlx")
-            Text("Parakeet TDT 0.6B v3").tag("mlx-community/parakeet-tdt-0.6b-v3")
+        Picker("Speech", selection: $state.preferences.speechModel) {
+            Text("Whisper Small").tag(Preferences.whisperSmallSpeechModel)
+            Text("Parakeet TDT 0.6B v3").tag(Preferences.parakeetSpeechModel)
             Text("Qwen3-ASR · 1.7B · 4-bit").tag(Preferences.qwen3ASRSpeechModel)
-            Text("Voxtral Realtime 4B · 4-bit").tag("mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit")
+            Text("Voxtral Realtime 4B · 4-bit").tag(Preferences.voxtralSpeechModel)
             ForEach(state.models.filter { $0.kind == .speech }) { Text("Local · \($0.name)").tag($0.path) }
-            let selection = state.preferences.whisperModel
-            if ![Preferences.nemotronSpeechModel, Preferences.reduxSpeechModel, Preferences.phononSpeechModel, "mlx-community/whisper-small-mlx", "mlx-community/parakeet-tdt-0.6b-v3", Preferences.qwen3ASRSpeechModel, "mlx-community/Voxtral-Mini-4B-Realtime-2602-4bit"].contains(selection),
+            let selection = state.preferences.speechModel
+            if ![Preferences.whisperSmallSpeechModel, Preferences.parakeetSpeechModel, Preferences.qwen3ASRSpeechModel, Preferences.voxtralSpeechModel].contains(selection),
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }
@@ -414,13 +440,6 @@ struct InspectorView: View {
                !state.models.contains(where: { $0.path == selection }) {
                 Text(URL(fileURLWithPath: selection).lastPathComponent + " (saved)").tag(selection)
             }
-        }
-    }
-    private func modelPicker(_ title: String, kind: LocalModel.Kind, selection: Binding<String>, fallback: String, label: String) -> some View {
-        Picker(title, selection: selection) {
-            Text(label).tag(fallback)
-            ForEach(state.models.filter { $0.kind == kind }) { Text("Local · \($0.name)").tag($0.path) }
-            if selection.wrappedValue != fallback && !state.models.contains(where: { $0.path == selection.wrappedValue }) { Text(URL(fileURLWithPath: selection.wrappedValue).lastPathComponent + " (saved)").tag(selection.wrappedValue) }
         }
     }
 }

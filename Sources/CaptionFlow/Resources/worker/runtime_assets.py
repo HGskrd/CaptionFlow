@@ -8,6 +8,7 @@ import platform
 import shutil
 import tarfile
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 
@@ -66,7 +67,19 @@ def download(url, path, expected, progress=print, allow_network=True):
         headers["Range"] = f"bytes={offset}-"
     request = urllib.request.Request(url, headers=headers)
     progress(f"Downloading {path.name}…")
-    with urllib.request.urlopen(request, timeout=60) as response:
+    try:
+        response = urllib.request.urlopen(request, timeout=60)
+    except urllib.error.HTTPError as error:
+        if not offset or error.code != 416:
+            raise
+        # Nothing remains past the partial: an earlier run stopped after the
+        # last byte but before verification. Verify it, or discard and restart.
+        if sha256(partial) == expected:
+            partial.replace(path)
+            return path
+        partial.unlink()
+        return download(url, path, expected, progress, allow_network)
+    with response:
         resume = offset and response.status == 206
         with partial.open("ab" if resume else "wb") as handle:
             last_report = 0

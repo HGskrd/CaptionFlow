@@ -5,17 +5,11 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import MagicMock, patch
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / 'Sources/CaptionFlow/Resources/worker'))
-from caption_core import cache_reuse, latest_caption, visible_words
+from caption_core import cache_reuse, visible_words
 
 class CaptionsTest(unittest.TestCase):
-    def test_sentence_rollover(self):
-        self.assertEqual(latest_caption('First sentence. Here is the next one'), 'Here is the next one')
-        self.assertEqual(latest_caption('First sentence. '), 'First sentence.')
-        self.assertEqual(latest_caption('你好。世界！'), '世界！')
-        self.assertLessEqual(len(latest_caption('word ' * 500).split()), 33)
-        self.assertLessEqual(len(latest_caption('字' * 500)), 221)
-
     def test_prefix_revision_and_cache_bounds(self):
         self.assertEqual(cache_reuse([1, 2, 3, 4], [1, 2, 8, 9], 20), 2)
         self.assertEqual(cache_reuse([1, 2, 3], [1, 2, 3, 4], 10), 3)
@@ -50,9 +44,80 @@ class CaptionsTest(unittest.TestCase):
         self.assertEqual(inbox.utterance, 1)
         for _ in range(60): inbox.feed(silence)
         self.assertEqual(inbox.utterance, 1)
-        for _ in range(200): inbox.feed(voice)
-        self.assertLessEqual(len(inbox.jobs), 3)
+        with self.assertRaisesRegex(RuntimeError, "25 seconds"):
+            for _ in range(200): inbox.feed(voice)
+        self.assertLessEqual(inbox.queued_samples, 25 * 16000)
         self.assertLess(inbox.size, 192000)
+
+    def test_snapshot_backlog_retains_finals_before_newer_partials(self):
+        import numpy as np
+        from worker import AudioInbox
+        inbox = AudioInbox(0.008)
+        voice = np.full(3200, 0.1, dtype='<f4').tobytes()
+        silence = np.zeros(3200, dtype='<f4').tobytes()
+        for _ in range(4):
+            for _ in range(3): inbox.feed(voice)
+            for _ in range(4): inbox.feed(silence)
+        for _ in range(6): inbox.feed(voice)
+        inbox.closed = True
+        jobs = []
+        while (job := inbox.next()) is not None:
+            jobs.append(job)
+        self.assertEqual([(u, final) for u, _, final in jobs],
+                         [(0, True), (1, True), (2, True), (3, True), (4, False)])
+        self.assertEqual(len(jobs[-1][1]), 6 * 3200)
+        self.assertEqual(inbox.queued_samples, 0)
+
+    def test_snapshot_unchanged_text_still_emits_final_for_every_engine(self):
+        import numpy as np
+        from worker import run_snapshot_speech
+        for engine in ('whisper', 'parakeet', 'qwen3_asr'):
+            with self.subTest(engine=engine):
+                samples = np.ones(16000, dtype=np.float32)
+                inbox = MagicMock()
+                inbox.next.side_effect = [(0, samples, False), (0, samples, False),
+                                          (0, samples, True), (1, samples, True), None]
+                whisper = MagicMock()
+                whisper.transcribe.return_value = {'segments': [{'text': 'Hello world'}], 'language': 'en'}
+                model = MagicMock()
+                model.generate.return_value.text = 'Hello world'
+                model.generate.return_value.language = 'en'
+                mlx = MagicMock()
+                events = []
+                with patch.dict(sys.modules, {'mlx': mlx, 'mlx.core': mlx.core, 'mlx_whisper': whisper}):
+                    run_snapshot_speech(inbox, engine, model, 'unused', 'en', lambda *args: events.append(args))
+                self.assertEqual([(e[0], e[3]) for e in events], [(0, False), (0, True), (1, True)])
+
+    def test_gpu_readiness_waits_for_offload_log_and_rejects_zero_or_missing_layers(self):
+        import io
+        from llama_translation import LlamaTranslator
+        for line, succeeds in [('offloaded 33/33 layers to GPU\n', True),
+                               ('offloaded 0/33 layers to GPU\n', False), ('', False)]:
+            with self.subTest(line=line):
+                healthy = threading.Event()
+                class Logs:
+                    def __iter__(self):
+                        if not healthy.wait(2): raise AssertionError('Health was never checked')
+                        if line: yield line
+                    def close(self): pass
+                process = MagicMock()
+                process.poll.return_value = None
+                process.stdout = Logs()
+                def health(*args, **kwargs):
+                    healthy.set()
+                    return io.StringIO('{"status":"ok"}')
+                with patch('llama_translation.subprocess.Popen', return_value=process), \
+                     patch.object(LlamaTranslator, 'request', side_effect=health), \
+                     patch('llama_translation.atexit.register'):
+                    config = {'llama_server': 'unused', 'translation_model': 'unused', 'gpu': 0}
+                    if succeeds:
+                        translator = LlamaTranslator(config, lambda *a, **kw: None, None)
+                        self.assertEqual(translator.gpu_layers, 33)
+                        translator.close()
+                    else:
+                        with self.assertRaisesRegex(RuntimeError, 'GPU layer offload'):
+                            LlamaTranslator(config, lambda *a, **kw: None, None)
+                        process.terminate.assert_called_once()
 
     def test_speech_engine_detection(self):
         from worker import qwen_language, speech_engine
@@ -93,6 +158,20 @@ class CaptionsTest(unittest.TestCase):
         np.testing.assert_array_equal(np.concatenate([j[1] for j in jobs]), np.concatenate(frames))
         self.assertEqual([(u, f) for u, _, f in jobs], [(0, False), (0, False), (0, False), (0, True), (1, False)])
         self.assertEqual(inbox.queued_samples, 0)
+
+    def test_fixture_boundary_tracker_runs_long_without_inference_backlog(self):
+        import numpy as np
+        from worker import AudioInbox
+        tracker = AudioInbox(0.008, tracking_only=True)
+        voice = np.full(3200, 0.1, dtype='<f4').tobytes()
+        silence = np.zeros(3200, dtype='<f4').tobytes()
+        for _ in range(20):
+            for _ in range(20): tracker.feed(voice)
+            for _ in range(5): tracker.feed(silence)
+        self.assertEqual(tracker.utterance, 20)
+        self.assertEqual(tracker.queued_samples, 0)
+        self.assertFalse(tracker.jobs)
+        self.assertLessEqual(tracker.size, 192000)
 
     def test_stream_backlog_is_bounded_by_duration_not_packets(self):
         import numpy as np

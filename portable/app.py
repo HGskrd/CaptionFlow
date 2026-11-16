@@ -11,7 +11,7 @@ import traceback
 import zipfile
 
 from PySide6.QtCore import Qt, Signal, QObject, QTimer
-from PySide6.QtGui import QFont, QKeySequence, QShortcut
+from PySide6.QtGui import QFont, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QPlainTextEdit, QFileDialog, QSpinBox, QMessageBox, QCheckBox)
 from common import ROOT, WorkerSession, doctor, hardware, redact
@@ -219,7 +219,8 @@ class Window(QMainWindow):
                 work()
                 self.signals.done.emit("Stopped" if self.cancelled.is_set() else "Finished")
             except Exception as exc:
-                self.signals.failed.emit(redact(str(exc)) + "\n" + redact(traceback.format_exc()))
+                if self.cancelled.is_set(): self.signals.done.emit("Stopped")
+                else: self.signals.failed.emit(redact(str(exc)) + "\n" + redact(traceback.format_exc()))
         self.task = threading.Thread(target=execute, daemon=True); self.task.start()
 
     def done(self, message):
@@ -426,7 +427,13 @@ def main():
     parser.add_argument("--data", default=str(Path(__file__).parent / "data"))
     parser.add_argument("--smoke-test", action="store_true")
     args = parser.parse_args()
-    application = QApplication(sys.argv[:1]); window = Window(args.data, args.smoke_test); window.show()
+    if sys.platform == "win32":
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("HGskrd.CaptionFlow")
+    application = QApplication(sys.argv[:1])
+    application.setApplicationName("CaptionFlow")
+    application.setWindowIcon(QIcon(str(Path(__file__).parent / "resources/CaptionFlow.ico")))
+    window = Window(args.data, args.smoke_test); window.show()
     if args.smoke_test:
         from PySide6.QtCore import QTimer
         QTimer.singleShot(500, application.quit)

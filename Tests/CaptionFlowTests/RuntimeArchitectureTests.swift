@@ -20,7 +20,7 @@ final class RuntimeArchitectureTests: XCTestCase {
 
     func testRuntimeConfigurationMatchesAppArchitecture() {
         var preferences = Preferences()
-        preferences.whisperModel = "saved-mlx-speech"
+        preferences.speechModel = "saved-mlx-speech"
         preferences.translationModel = "saved-mlx-translation"
         #if arch(arm64)
         XCTAssertTrue(Preferences.supportsMLX)

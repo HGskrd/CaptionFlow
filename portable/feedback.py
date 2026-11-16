@@ -9,11 +9,12 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-from common import redact
+from common import WORKER_DIR, redact
 
 BASE_URL = "https://h.gskrd.me/apps/captionflow"
-VERSION = "0.4.3"
-RELEASE_SEQUENCE = 7
+_release = json.loads((WORKER_DIR / "release.json").read_text())
+VERSION = _release["version"]
+RELEASE_SEQUENCE = _release["sequence"]
 # Release verification key is public. Signing key stays off the VPS and outside the repo.
 PUBLIC_KEY = "yTp27s/gWvh5/qBk/I6/IcszfL0oPFANbj1ffM+QDiQ="
 FORBIDDEN = {"audio", "pcm", "transcript", "text", "hostname", "serial", "username", "token",

@@ -79,6 +79,11 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         path = urllib.parse.urlparse(self.path).path
         if path == PREFIX + "/health": return self.respond(200, {"status": "ok", "schema": 1})
+        if path.startswith(PREFIX + "/v2/releases/"):
+            target = path.rsplit("/", 1)[-1]
+            if target not in ("windows-x86_64", "macos-aarch64", "macos-x86_64"): return self.respond(404, {})
+            file = STATE / "releases" / ("gpui-" + target + ".json")
+            return self.respond(200, json.loads(file.read_text()) if file.exists() else None)
         if path.startswith(PREFIX + "/v1/releases/"):
             target = path.rsplit("/", 1)[-1]
             if target not in ("windows-x86_64", "macos-aarch64"): return self.respond(404, {})

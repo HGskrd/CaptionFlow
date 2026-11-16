@@ -15,7 +15,9 @@ final class AppState: ObservableObject {
                 }
                 startLiveClearTimer()
             }
-            if oldValue.effectiveCaptionFlow != preferences.effectiveCaptionFlow ||
+            if oldValue.effectiveCaptionPresentation != preferences.effectiveCaptionPresentation ||
+                oldValue.effectiveTranslationPresentation != preferences.effectiveTranslationPresentation ||
+                oldValue.effectiveCaptionFlow != preferences.effectiveCaptionFlow ||
                 oldValue.effectiveCaptionWordLimit != preferences.effectiveCaptionWordLimit ||
                 oldValue.effectiveCaptionTimeLimit != preferences.effectiveCaptionTimeLimit {
                 applyCaptionFlowPreferences()
@@ -28,13 +30,12 @@ final class AppState: ObservableObject {
     @Published var phase = "Ready when you are"
     @Published var busy = false
     @Published var listening = false
+    @Published var stopping = false
     @Published var installing = false
     @Published var installed = WorkerBridge.isInstalled
     @Published var scanning = false
     @Published var models: [LocalModel] = []
     @Published var scanMessage = ""
-    @Published var original = ""
-    @Published var translations: [String: String] = [:]
     @Published var originalDocument = LiveCaptionDocument()
     @Published var translationDocuments: [String: LiveCaptionDocument] = [:]
     private var lastSpeech = Date.distantPast
@@ -42,16 +43,17 @@ final class AppState: ObservableObject {
     private var liveClearTask: Task<Void, Never>?
     @Published var originalTokens: [CaptionToken] = []
     @Published var translationTokens: [String: [CaptionToken]] = [:]
-    @Published var detectedLanguage = ""
     @Published var error: String?
     @Published var capturePermissionIssue = false
-    @Published var level: Float = 0
-    @Published var cachedTokens = 0
-    @Published var latency = 0.0
-    @Published var preview = false
+    @Published var capturedSeconds = 0.0
+    @Published var audioLevel: Float = 0
+    @Published var speakers: [String: String] = [:]
+    @Published var sourceEventCount = 0
+    @Published var translationEventCount = 0
     private var worker: WorkerBridge?
     private var audio: AudioCapture?
     private var captureTask: Task<Void, Never>?
+    private var stopTask: Task<Void, Never>?
     private var session = UUID()
     private var revision = -1
     private var captionID = ""
@@ -63,27 +65,26 @@ final class AppState: ObservableObject {
     private var translationPacers: [String: CaptionPacer] = [:]
     private var playbackTask: Task<Void, Never>?
     private var expirationTask: Task<Void, Never>?
-    var active: Bool { busy || listening }
+    var active: Bool { busy || listening || stopping }
     var usesVoxtral: Bool {
-        if preferences.whisperModel.localizedCaseInsensitiveContains("voxtral") { return true }
-        let configURL = URL(fileURLWithPath: preferences.whisperModel).appendingPathComponent("config.json")
+        if preferences.speechModel.localizedCaseInsensitiveContains("voxtral") { return true }
+        let configURL = URL(fileURLWithPath: preferences.speechModel).appendingPathComponent("config.json")
         guard let data = try? Data(contentsOf: configURL),
               let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
         return config["model_type"] as? String == "voxtral_realtime"
     }
     var speechModelNote: String {
-        if !Preferences.supportsMLX { return "Nemotron 3.5 · 0.6B · native streaming · CPU" }
-        let model = preferences.whisperModel.lowercased()
-        if model.contains("nemotron") { return "Nemotron 3.5 · 0.6B · native streaming · Metal" }
-        if model.contains("redux") { return "Parakeet Redux · compressed 0.6B · 25 European languages · chunked" }
-        if model.contains("phonon") { return "Phonon 2.5 · compressed 0.6B · 25 European languages · chunked" }
-        if model.contains("parakeet") { return "Parakeet · 0.6B · fast · 25 European languages" }
-        if model.contains("qwen3-asr") { return "Qwen3-ASR · 1.7B · 4-bit · 30 languages and 22 Chinese dialects · snapshot live" }
-        if model.contains("voxtral") { return "Voxtral Realtime · 4B · 4-bit · 13 languages · higher memory use" }
-        return "Whisper Small · multilingual · balanced"
+        if !Preferences.supportsMLX { return "Nemotron streaming · CPU" }
+        switch preferences.speechModel {
+        case Preferences.whisperSmallSpeechModel: return "Whisper Small · multilingual · balanced"
+        case Preferences.parakeetSpeechModel: return "Parakeet · 0.6B · fast · 25 European languages"
+        case Preferences.qwen3ASRSpeechModel: return "Qwen3-ASR · 1.7B · 4-bit · 30 languages and 22 Chinese dialects · snapshot live"
+        case Preferences.voxtralSpeechModel: return "Voxtral Realtime · 4B · 4-bit · 13 languages · higher memory use"
+        default: return "Local speech model · used in place"
+        }
     }
     var translationModelNote: String {
-        if !Preferences.supportsMLX { return "Hy-MT2 · 1.8B · 4-bit GGUF · CPU · translates completed phrases" }
+        if !Preferences.supportsMLX { return "Hy-MT2 · CPU · translates completed phrases" }
         if preferences.translationModel == Preferences.hyMT2TranslationModel {
             return "Hy-MT2 · about 1.02 GB · translation-specific · 33 languages"
         }
@@ -93,7 +94,10 @@ final class AppState: ObservableObject {
         if preferences.translationModel == Preferences.qwen35TranslationModel {
             return "Qwen 3.5 · about 652 MB · lower memory use · partial revisions decode fresh"
         }
-        return "Qwen 2.5 · about 1.1 GB · reusable prefix cache"
+        if preferences.translationModel == Preferences.qwen25TranslationModel {
+            return "Qwen 2.5 · about 1.1 GB · reusable prefix cache"
+        }
+        return "Local translation model · used in place"
     }
 
     func install() {
@@ -116,9 +120,10 @@ final class AppState: ObservableObject {
     func start() {
         guard !active, !installing else { return }
         capturePermissionIssue = false
-        if preferences.source != .microphone && !CGPreflightScreenCaptureAccess() {
+        if preferences.source == .system && !CGPreflightScreenCaptureAccess() {
             capturePermissionIssue = true
-            error = "macOS has not authorized this build of CaptionFlow to capture Mac audio. If the switch is already enabled, the saved permission may refer to an older build. Remove the old CaptionFlow entry and add this app again in Screen & System Audio Recording, then quit and reopen CaptionFlow."
+            let appName = Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String ?? "CaptionFlow"
+            error = "Allow \(appName) in System Settings → Privacy & Security → Screen & System Audio Recording. If its switch is already enabled for an older build, remove and add only the \(appName) entry, then quit and reopen it."
             return
         }
         guard installed else { inspector = true; tab = "Models"; phase = "Set up local inference to begin"; return }
@@ -126,16 +131,17 @@ final class AppState: ObservableObject {
             error = "Choose at least one translation language, or display Original only."; return
         }
         resetPlayback()
-        originalDocument = LiveCaptionDocument(); translationDocuments = [:]
-        lastSpeech = .distantPast
-        error = nil; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]; preview = false; cachedTokens = 0; revision = -1
+        speakers = [:]
+        capturedSeconds = 0; audioLevel = 0; sourceEventCount = 0; translationEventCount = 0
+        error = nil; originalTokens = []; translationTokens = [:]; revision = -1
         busy = true; phase = "Loading local models…"; session = UUID()
         let id = session; let bridge = WorkerBridge(); worker = bridge
-        bridge.onEvent = { [weak self] event in Task { @MainActor in guard self?.session == id else { return }; self?.receive(event) } }
-        bridge.onExit = { [weak self] message in Task { @MainActor in guard let self, self.session == id, self.active else { return }; self.fail(message) } }
+        bridge.onEvent = { [weak self] event in DispatchQueue.main.async { guard self?.session == id else { return }; self?.receive(event) } }
+        bridge.onExit = { [weak self] message in DispatchQueue.main.async { guard let self, self.session == id, self.active, !self.stopping else { return }; self.fail(message) } }
         do {
             try bridge.start(configuration: [
                 "type": "configure", "speech_model": preferences.effectiveSpeechModel,
+                "diarization_model": preferences.diarizationModel ?? "",
                 "translation_model": preferences.effectiveTranslationModel, "targets": preferences.displayMode == .original ? [] : preferences.targets,
                 "source_language": preferences.sourceLanguage, "allow_downloads": preferences.allowDownloads && community.enabled,
                 "cache_dir": WorkerBridge.support.appendingPathComponent("models").path,
@@ -153,21 +159,26 @@ final class AppState: ObservableObject {
     }
     private func receive(_ event: [String: Any]) {
         switch event["type"] as? String {
-        case "status": phase = event["message"] as? String ?? phase
+        case "status":
+            if !stopping {
+                phase = event["message"] as? String ?? phase
+                if phase.hasPrefix("Speaker detection") { community.status = phase }
+            }
         case "ready":
+            guard !stopping else { return }
             phase = "Starting audio…"
             let capture = AudioCapture(); audio = capture
             let id = session; let bridge = worker
             capture.onAudio = { [weak self, weak bridge] data, level in
                 bridge?.sendAudio(data)
-                Task { @MainActor in
-                    if let self, self.session == id {
-                        self.level = level
-                        if Double(level) >= self.preferences.silenceThreshold { self.lastSpeech = Date() }
-                    }
+                DispatchQueue.main.async {
+                    guard let self, self.session == id else { return }
+                    self.capturedSeconds += Double(data.count) / 64_000
+                    self.audioLevel = level
+                    if Double(level) >= self.preferences.silenceThreshold { self.lastSpeech = Date() }
                 }
             }
-            capture.onError = { [weak self] message in Task { @MainActor in if self?.session == id { self?.fail(message) } } }
+            capture.onError = { [weak self] message in Task { @MainActor in if self?.session == id, self?.stopping == false { self?.fail(message) } } }
             let source = preferences.source
             captureTask = Task {
                 do {
@@ -176,10 +187,17 @@ final class AppState: ObservableObject {
                     busy = false; listening = true; phase = "Listening · on device"
                 } catch {
                     await capture.stop()
-                    if session == id { fail(error.localizedDescription) }
+                    if session == id, !Task.isCancelled { fail(error.localizedDescription) }
                 }
             }
+        case "speaker":
+            if let caption = event["caption_id"] as? String, let speaker = event["speaker_id"] as? String {
+                speakers[caption] = speaker
+                let retained = Set(originalDocument.utterances.map(\.id))
+                if speakers.count > 256 { speakers = speakers.filter { retained.contains($0.key) } }
+            }
         case "source":
+            sourceEventCount += 1
             let next = event["revision"] as? Int ?? 0
             guard next >= revision else { return }
             revision = next
@@ -192,19 +210,16 @@ final class AppState: ObservableObject {
             if let correction = originalStream.update(event["text"] as? String ?? "", id: captionID,
                                                       allowCorrections: event["revisable"] as? Bool ?? false) {
                 originalRetention.reconcile(correction, preservingWindow: true)
-                let tokens = preferences.effectiveCaptionFlow == .sentence
+                originalTokens = preferences.effectiveCaptionFlow == .sentence
                     ? originalStream.displayTokens
                     : originalRetention.tokens(mode: preferences.effectiveCaptionFlow,
                                                wordLimit: preferences.effectiveCaptionWordLimit,
                                                timeLimit: preferences.effectiveCaptionTimeLimit)
-                originalTokens = tokens
-                original = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             }
             originalPacer.observe(pendingWords: originalStream.pendingCount)
             playPendingWords()
-            detectedLanguage = (event["language"] as? String ?? "").uppercased()
-            latency = event["latency"] as? Double ?? 0
         case "translation":
+            translationEventCount += 1
             guard let translationRevision = event["revision"] as? Int,
                   let language = event["language"] as? String else { return }
             let eventCaptionID = event["caption_id"] as? String ?? captionID
@@ -221,27 +236,26 @@ final class AppState: ObservableObject {
             translationPacers[language]?.observe(pendingWords: translationStreams[language]?.pendingCount ?? 0)
             if let reconciliation {
                 translationRetentions[language, default: CaptionRetentionBuffer()].reconcile(reconciliation)
-                let tokens = preferences.effectiveCaptionFlow == .sentence
+                translationTokens[language] = preferences.effectiveCaptionFlow == .sentence
                     ? reconciliation.visibleTokens
                     : translationRetentions[language, default: CaptionRetentionBuffer()].tokens(
                         mode: preferences.effectiveCaptionFlow,
                         wordLimit: preferences.effectiveCaptionWordLimit,
                         timeLimit: preferences.effectiveCaptionTimeLimit
                     )
-                translationTokens[language] = tokens
-                translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             }
             playPendingWords()
-            cachedTokens = event["cached_tokens"] as? Int ?? 0
         case "error": fail(event["message"] as? String ?? "Local inference failed.")
         default: break
         }
     }
     private func resetPlayback() {
         previewTask?.cancel(); previewTask = nil
+        liveClearTask?.cancel(); liveClearTask = nil
+        originalDocument = LiveCaptionDocument(); translationDocuments = [:]
+        lastSpeech = .distantPast
         playbackTask?.cancel(); playbackTask = nil
         expirationTask?.cancel(); expirationTask = nil
-        liveClearTask?.cancel(); liveClearTask = nil
         originalStream = ProgressiveCaption(); translationStreams = [:]; captionID = ""
         originalRetention = CaptionRetentionBuffer(); translationRetentions = [:]
         originalPacer.reset(); translationPacers = [:]
@@ -253,14 +267,12 @@ final class AppState: ObservableObject {
                 guard let self else { return }
                 if let step = self.originalStream.advanceStep() {
                     self.originalRetention.merge(step)
-                    let display = self.display(step: step, buffer: &self.originalRetention)
-                    self.original = display.text; self.originalTokens = display.tokens
+                    self.originalTokens = self.display(step: step, buffer: &self.originalRetention)
                 }
                 for language in Array(self.translationStreams.keys) {
                     if let step = self.translationStreams[language]?.advanceStep() {
                         self.translationRetentions[language, default: CaptionRetentionBuffer()].merge(step)
-                        let display = self.display(step: step, buffer: &self.translationRetentions[language, default: CaptionRetentionBuffer()])
-                        self.translations[language] = display.text; self.translationTokens[language] = display.tokens
+                        self.translationTokens[language] = self.display(step: step, buffer: &self.translationRetentions[language, default: CaptionRetentionBuffer()])
                     }
                 }
                 self.startExpirationTimerIfNeeded()
@@ -272,34 +284,26 @@ final class AppState: ObservableObject {
                 for language in self.translationStreams.keys where self.translationStreams[language]?.hasPending == true {
                     delays.append(self.translationPacers[language]?.milliseconds ?? 180)
                 }
-                let hasClassic = self.preferences.effectiveCaptionPresentation == .classic || self.preferences.effectiveTranslationPresentation == .classic
-                if !hasClassic { continue }
                 let delay = Int((delays.max() ?? 180).rounded())
                 do { try await Task.sleep(for: .milliseconds(delay)) } catch { return }
             }
         }
     }
-    private func display(step: CaptionStep, buffer: inout CaptionRetentionBuffer) -> (text: String, tokens: [CaptionToken]) {
+    private func display(step: CaptionStep, buffer: inout CaptionRetentionBuffer) -> [CaptionToken] {
         let mode = preferences.effectiveCaptionFlow
-        let tokens = mode == .sentence ? step.visibleTokens : buffer.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
-        return (tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines), tokens)
+        return mode == .sentence ? step.visibleTokens : buffer.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
     }
     private func applyCaptionFlowPreferences() {
         let mode = preferences.effectiveCaptionFlow
         if mode == .sentence {
-            original = originalStream.text
             originalTokens = originalStream.displayTokens
             for language in translationStreams.keys {
-                translations[language] = translationStreams[language]?.text ?? ""
                 translationTokens[language] = translationStreams[language]?.displayTokens ?? []
             }
         } else {
             originalTokens = originalRetention.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit)
-            original = originalTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
             for language in translationRetentions.keys {
-                let tokens = translationRetentions[language]?.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit) ?? []
-                translationTokens[language] = tokens
-                translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                translationTokens[language] = translationRetentions[language]?.tokens(mode: mode, wordLimit: preferences.effectiveCaptionWordLimit, timeLimit: preferences.effectiveCaptionTimeLimit) ?? []
             }
         }
         startExpirationTimerIfNeeded()
@@ -328,7 +332,9 @@ final class AppState: ObservableObject {
         }
     }
     private func startExpirationTimerIfNeeded() {
-        guard preferences.effectiveCaptionPresentation == .classic || preferences.effectiveTranslationPresentation == .classic else { return }
+        guard preferences.effectiveCaptionPresentation == .classic || preferences.effectiveTranslationPresentation == .classic else {
+            expirationTask?.cancel(); expirationTask = nil; return
+        }
         guard preferences.effectiveCaptionFlow == .time, expirationTask == nil,
               !originalRetention.isEmpty || translationRetentions.values.contains(where: { !$0.isEmpty }) else { return }
         expirationTask = Task { [weak self] in
@@ -336,12 +342,13 @@ final class AppState: ObservableObject {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                 guard let self, self.preferences.effectiveCaptionFlow == .time else { break }
                 let now = Date()
-                self.originalTokens = self.originalRetention.tokens(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now)
-                self.original = self.originalTokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                // Publish only real expirations; an unchanged assignment would
+                // still redraw every observing view ten times a second.
+                let tokens = self.originalRetention.tokens(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now)
+                if tokens != self.originalTokens { self.originalTokens = tokens }
                 for language in self.translationRetentions.keys {
                     let tokens = self.translationRetentions[language]?.tokens(mode: .time, wordLimit: self.preferences.effectiveCaptionWordLimit, timeLimit: self.preferences.effectiveCaptionTimeLimit, now: now) ?? []
-                    self.translationTokens[language] = tokens
-                    self.translations[language] = tokens.map(\.text).joined().trimmingCharacters(in: .whitespacesAndNewlines)
+                    if tokens != self.translationTokens[language] { self.translationTokens[language] = tokens }
                 }
                 if self.originalRetention.isEmpty && self.translationRetentions.values.allSatisfy(\.isEmpty) { break }
             }
@@ -349,45 +356,81 @@ final class AppState: ObservableObject {
         }
     }
     private func fail(_ message: String) {
-        stop(); error = message; phase = "Needs attention"
+        session = UUID(); captureTask?.cancel(); captureTask = nil
+        worker?.stop(); worker = nil
+        let oldAudio = audio; audio = nil
+        busy = false; listening = false; stopping = false
+        Task { await oldAudio?.stop() }
+        error = message; phase = "Needs attention"
         Task { await community.diagnostic("session_failed", error: message) }
     }
     func firstLaunchConsent() {
         if !community.hasChoice { changeNetworkConsent() }
         else if community.enabled { Task { await community.sync() } }
     }
-    func changeNetworkConsent() {
+    func changeNetworkConsent() { changeNetworkConsent(in: nil) }
+    func changeNetworkConsent(in window: NSWindow?, completion: (() -> Void)? = nil) {
         guard !installing else { return }
         let alert = NSAlert()
-        if community.enabled {
+        let wasEnabled = community.enabled
+        if wasEnabled {
             alert.messageText = "Disable online participation?"
             alert.informativeText = "This stops listening, disables downloads, uploads and update checks, and requests deletion of this installation's uploaded reports."
             alert.addButton(withTitle: "Keep enabled"); alert.addButton(withTitle: "Disable and delete")
-            if alert.runModal() == .alertSecondButtonReturn {
-                stop()
-                Task { await community.revoke(); phase = "Local-only mode" }
-            }
         } else {
             alert.messageText = "Share performance data?"
             alert.informativeText = "Yes enables model downloads, sends hardware specifications and error fingerprints to Ishan's Hetzner service, and checks for signed updates. Audio, captions and translations are never uploaded. Reports expire after 30 days. No keeps all internet access disabled; supply runtime and model files offline. You can change this choice later."
             alert.addButton(withTitle: "No, stay local"); alert.addButton(withTitle: "Yes, participate")
-            community.choose(alert.runModal() == .alertSecondButtonReturn)
-            phase = community.enabled ? "Online participation enabled" : "Local-only mode"
         }
+        let handle: (NSApplication.ModalResponse) -> Void = { [self] response in
+            defer { if let window { DispatchQueue.main.async { window.makeFirstResponder(window.contentView) } } }
+            if wasEnabled {
+                if response == .alertSecondButtonReturn {
+                    stop()
+                    Task { await community.revoke(); await shutdown(); phase = "Local-only mode"; completion?() }
+                } else { completion?() }
+            } else {
+                community.choose(response == .alertSecondButtonReturn)
+                phase = community.enabled ? "Online participation enabled" : "Local-only mode"
+                completion?()
+            }
+        }
+        if let window { alert.beginSheetModal(for: window, completionHandler: handle) }
+        else { handle(alert.runModal()) }
     }
     func stop() {
-        resetPlayback()
-        startLiveClearTimer()
-        session = UUID(); captureTask?.cancel(); captureTask = nil
-        worker?.stop(); worker = nil
+        guard !stopping else { return }
+        guard let bridge = worker else { return }
+        stopping = true; busy = false; listening = false; phase = "Finishing retained captions…"
+        captureTask?.cancel(); captureTask = nil
         let oldAudio = audio; audio = nil
-        busy = false; listening = false; level = 0; phase = "Stopped"
-        Task { await oldAudio?.stop() }
+        let id = session
+        stopTask = Task {
+            await oldAudio?.stop()
+            do {
+                try await bridge.finish(timeout: 3)
+                // Events are dispatched to the main queue in protocol order.
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.main.async { continuation.resume() }
+                }
+                guard session == id else { return }
+                session = UUID(); worker = nil; stopping = false; stopTask = nil; phase = "Stopped"
+            } catch {
+                guard session == id else { return }
+                bridge.stop(); session = UUID(); worker = nil; stopping = false; stopTask = nil
+                phase = "Stopped · unfinished processing cancelled"
+                community.status = "Stopped after the three-second processing limit. Captions already displayed are kept."
+            }
+        }
+    }
+    func shutdown() async {
+        stop()
+        await stopTask?.value
     }
     func showPreview() {
         guard !active else { return }
         resetPlayback()
-        preview = true; original = ""; translations = [:]; originalTokens = []; translationTokens = [:]
+        originalTokens = []; translationTokens = [:]
         originalDocument = LiveCaptionDocument(); translationDocuments = [:]; revision = -1
         lastSpeech = .distantPast
         let sentences = [

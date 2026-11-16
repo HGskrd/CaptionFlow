@@ -1,0 +1,189 @@
+{
+  "version": "0.4.6",
+  "tests": {
+    "swift": 48,
+    "portable_python": 56,
+    "worker_python": 14,
+    "rust": 8
+  },
+  "cpu_replay": {
+    "host": "Apple M4 Pro, CPU inference",
+    "duration_seconds": 61.63875,
+    "startup_seconds": 1.0612798749934882,
+    "status": "ok",
+    "source_events": 169,
+    "final_caption_lag_seconds": {
+      "count": 10,
+      "p50": 0.07933833298739046,
+      "p95": 0.0844070956343785,
+      "p99": 0.085265185511671,
+      "max": 0.08547970798099414
+    },
+    "fixture_word_error_rate": 0.1111111111111111
+  },
+  "diarization": {
+    "model": "nvidia/Nemotron-3-Diarization",
+    "single_speaker_fixture_verified": true,
+    "seconds": 0.39
+  },
+  "controls": {
+    "audio_choices": [
+      "Microphone + Mac audio",
+      "Microphone",
+      "Mac audio"
+    ],
+    "target_language_choices": 38,
+    "installed": true
+  },
+  "limits": [
+    "Synthetic replay is not a physical Windows device or live audio test.",
+    "Intel execution is under Rosetta.",
+    "Windows publisher signing is not configured."
+  ],
+  "installed_macos": [
+    {
+      "architecture": "arm64",
+      "version": "0.4.6",
+      "minimum_macos": "26.0",
+      "dmg_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_worker_matches": true,
+      "bundled_python_verified": true,
+      "gpui_preview_shutdown_exit": 0,
+      "execution": "native"
+    },
+    {
+      "architecture": "x86_64",
+      "version": "0.4.6",
+      "minimum_macos": "14.0",
+      "dmg_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_worker_matches": true,
+      "bundled_python_verified": true,
+      "gpui_preview_shutdown_exit": 0,
+      "execution": "Rosetta"
+    }
+  ],
+  "component_update": {
+    "unchanged_runtime_reused": true,
+    "signed_swap_and_relaunch_verified": true,
+    "tampered_stage_rejected": true
+  },
+  "installed_arm64_offline_inference": {
+    "architecture": "arm64",
+    "version": "0.4.6",
+    "minimum_macos": "26.0",
+    "dmg_verified": true,
+    "finder_layout_verified": true,
+    "relocated_signature_verified": true,
+    "bundled_python_verified": true,
+    "external_python_required": false,
+    "downloads_during_inference": false,
+    "source": "The train leaves at 9 tomorrow morning.",
+    "translation": "Le train part \u00e0 9 heures demain matin.",
+    "inference_seconds": 9.67,
+    "execution": "native Apple Silicon"
+  },
+  "windows_ci": {
+    "url": "https://github.com/HGskrd/CaptionFlow/actions/runs/43868724023",
+    "tested_commit": "881de7c",
+    "conclusion": "success",
+    "gpui": {
+      "preview": true,
+      "original_characters": 40,
+      "shutdown_received": true
+    },
+    "phonon": [
+      {
+        "model": "phonon",
+        "backend": "cpu",
+        "load_seconds": 8.058213499999965,
+        "direct_inference_seconds": [
+          0.41830419999996593,
+          0.42322359999991477
+        ],
+        "worker": {
+          "status": "ok",
+          "mode": "realtime",
+          "audio_seconds": 6.163875,
+          "planned_audio_seconds": 6.163875,
+          "repetitions": 1,
+          "fixture_sha256": "9a95106ffabb21ef86313b5167f09bdc4e763abe450eac30a7b5c3d3b2017cde",
+          "fixture_kind": "synthetic",
+          "quality_scope": "fixture_only",
+          "power_watts": null,
+          "gpu_utilization": null,
+          "vram_peak_bytes": null,
+          "temperature_c": null,
+          "runtime": {
+            "requested": "cpu",
+            "placement": "explicit_cpu",
+            "torch": "2.15.0+cpu",
+            "cuda_compiled": false
+          },
+          "ready": {
+            "type": "ready",
+            "engine": "phonon_cpu",
+            "backend": "cpu",
+            "runtime_version": "fermion-research 0.2.15",
+            "runtime_details": {
+              "runtime": "cpu: C encoder (packed int8) + C TDT loop, avx2 tier",
+              "activations": "float32",
+              "threads": 4,
+              "c_tdt_loop": true,
+              "c_encoder": true
+            },
+            "translation_gpu_layers": null,
+            "streaming": false
+          },
+          "load_seconds": 2.7144852999999785,
+          "partial": false,
+          "elapsed_seconds": 6.696351200000095,
+          "drain_seconds": 0.5314313000000084,
+          "realtime_factor": null,
+          "first_text_seconds": 0.6912050000000818,
+          "final_lag_seconds": {
+            "count": 1,
+            "p50": 0.5136093000000983,
+            "p95": 0.5136093000000983,
+            "p99": 0.5136093000000983,
+            "max": 0.5136093000000983
+          },
+          "translation_lag_seconds": {
+            "count": 0,
+            "p50": null,
+            "p95": null,
+            "p99": null,
+            "max": null
+          },
+          "missing_final_captions": 0,
+          "missing_final_translations": 0,
+          "word_error_rate": 0.2222222222222222,
+          "revision_erasure_ratio": 0.2608695652173913,
+          "backlog_seconds": {
+            "count": 9,
+            "p50": 0.0,
+            "p95": 3.4799999999999978,
+            "p99": 5.335999999999999,
+            "max": 5.8
+          },
+          "backlog_growth_seconds_per_second": 0.3925120767714932,
+          "worker_tree_peak_rss_bytes": 927789056,
+          "rss_growth_bytes_per_second": -42274814.433768116,
+          "cpu_percent": {
+            "count": 13,
+            "p50": 260.7,
+            "p95": 356.09999999999997,
+            "p99": 376.5,
+            "max": 381.6
+          },
+          "capture_drops": null,
+          "transport_drops": 0,
+          "source_events": 9,
+          "translation_quality": null,
+          "realtime_gate": false
+        }
+      }
+    ]
+  }
+}

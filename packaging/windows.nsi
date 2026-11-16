@@ -7,16 +7,22 @@ Unicode true
 !ifndef OUTPUT
   !define OUTPUT "CaptionFlow-Setup.exe"
 !endif
+!ifndef VERSION
+  !error "Define VERSION from the shared worker/release.json"
+!endif
+!define MUI_ICON "../portable/resources/CaptionFlow.ico"
+!define MUI_UNICON "../portable/resources/CaptionFlow.ico"
 Name "CaptionFlow"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\CaptionFlow"
 InstallDirRegKey HKCU "Software\CaptionFlow" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-VIProductVersion "0.4.3.0"
+VIProductVersion "${VERSION}.0"
 VIAddVersionKey "ProductName" "CaptionFlow"
 VIAddVersionKey "FileDescription" "CaptionFlow Installer"
-VIAddVersionKey "FileVersion" "0.4.3"
+VIAddVersionKey "FileVersion" "${VERSION}"
+VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "CaptionFlow contributors"
 !define MUI_ABORTWARNING
 !insertmacro MUI_PAGE_INSTFILES
@@ -37,18 +43,19 @@ Function .onInit
 FunctionEnd
 
 Function LaunchApp
-  Exec '"$INSTDIR\python\pythonw.exe" "$INSTDIR\portable\launch.py" --data "$LOCALAPPDATA\CaptionFlow"'
+  Exec '"$INSTDIR\CaptionFlowGPUI.exe"'
 FunctionEnd
 
 Section "CaptionFlow"
   SetOutPath "$INSTDIR"
   File /r "${PAYLOAD}/*"
   CreateDirectory "$SMPROGRAMS\CaptionFlow"
-  CreateShortCut "$SMPROGRAMS\CaptionFlow\CaptionFlow.lnk" "$INSTDIR\python\pythonw.exe" '"$INSTDIR\portable\launch.py" --data "$LOCALAPPDATA\CaptionFlow"'
+  CreateShortCut "$SMPROGRAMS\CaptionFlow\CaptionFlow.lnk" "$INSTDIR\CaptionFlowGPUI.exe" "" "$INSTDIR\portable\resources\CaptionFlow.ico"
   WriteRegStr HKCU "Software\CaptionFlow" "InstallDir" "$INSTDIR"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayName" "CaptionFlow"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayVersion" "0.4.3"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "DisplayIcon" "$INSTDIR\portable\resources\CaptionFlow.ico"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "Publisher" "HGskrd"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CaptionFlow" "URLInfoAbout" "https://github.com/HGskrd/CaptionFlow"
@@ -64,6 +71,8 @@ Section "Uninstall"
   RMDir /r "$INSTDIR\portable"
   RMDir /r "$INSTDIR\Sources"
   RMDir /r "$INSTDIR\docs"
+  Delete "$INSTDIR\CaptionFlowGPUI.exe"
+  Delete "$INSTDIR\update-manifest.json"
   Delete "$INSTDIR\Start CaptionFlow.cmd"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\dependency-sha256.json"

@@ -4,7 +4,8 @@
     "swift": 48,
     "portable_python": 56,
     "worker_python": 14,
-    "rust": 8
+    "rust": 8,
+    "rust_windows": 9
   },
   "cpu_replay": {
     "host": "Apple M4 Pro, CPU inference",
@@ -67,7 +68,8 @@
   "component_update": {
     "unchanged_runtime_reused": true,
     "signed_swap_and_relaunch_verified": true,
-    "tampered_stage_rejected": true
+    "tampered_stage_rejected": true,
+    "windows_directory_lock_regression": "Child process inherits the install directory, confirms the Windows rename lock, then leaves it and verifies staged replacement with the previous install retained."
   },
   "installed_arm64_offline_inference": {
     "architecture": "arm64",

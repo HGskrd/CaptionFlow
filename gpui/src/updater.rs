@@ -629,6 +629,30 @@ fn relaunch(root: &Path) -> Result<()> {
     }
     Ok(())
 }
+fn leave_installation_directory(stage: &Path) -> Result<()> {
+    // Windows locks a process's current directory against renaming. The helper
+    // can inherit the install directory from a shortcut or portable launcher.
+    // This runs before GPUI or any other threads are started in the helper.
+    std::env::set_current_dir(stage)?;
+    Ok(())
+}
+fn retire_installation(root: &Path, backup: &Path) -> std::io::Result<()> {
+    for attempt in 0..50 {
+        match fs::rename(root, backup) {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if cfg!(windows)
+                    && matches!(error.raw_os_error(), Some(5 | 32 | 33))
+                    && attempt < 49 =>
+            {
+                // The caption engine or a scanner may still be closing files.
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    unreachable!()
+}
 pub fn run_helper() -> bool {
     let args = std::env::args_os().collect::<Vec<_>>();
     if args.get(1).is_none_or(|a| a != "--apply-update") {
@@ -649,6 +673,7 @@ pub fn run_helper() -> bool {
         {
             return Err("Invalid staging directory".into());
         }
+        leave_installation_directory(&stage)?;
         let pid: u32 = args[4].to_string_lossy().parse()?;
         for _ in 0..1200 {
             if !process_exists(pid) {
@@ -668,7 +693,7 @@ pub fn run_helper() -> bool {
         let app = stage.join(root.file_name().unwrap());
         verify_tree(&app, &manifest)?;
         let backup = stage.join("previous");
-        fs::rename(&root, &backup)?;
+        retire_installation(&root, &backup)?;
         if let Err(error) = fs::rename(&app, &root) {
             fs::rename(&backup, &root)?;
             return Err(error.into());
@@ -703,6 +728,47 @@ pub fn run_helper() -> bool {
 mod tests {
     use super::*;
     use ed25519_dalek::{Signer, SigningKey};
+    #[cfg(windows)]
+    #[test]
+    fn helper_releases_inherited_install_directory_lock() {
+        const CHILD: &str = "CAPTIONFLOW_DIRECTORY_LOCK_TEST";
+        if let Some(directory) = std::env::var_os(CHILD) {
+            let base = PathBuf::from(directory);
+            let root = base.join("CaptionFlow");
+            let stage = base.join(".CaptionFlow-update-test");
+            assert_eq!(
+                std::env::current_dir().unwrap().canonicalize().unwrap(),
+                root.canonicalize().unwrap()
+            );
+            assert!(fs::rename(&root, stage.join("locked")).is_err());
+            leave_installation_directory(&stage).unwrap();
+            retire_installation(&root, &stage.join("previous")).unwrap();
+            fs::rename(stage.join("CaptionFlow"), &root).unwrap();
+            assert_eq!(fs::read(root.join("version")).unwrap(), b"new");
+            assert_eq!(fs::read(stage.join("previous/version")).unwrap(), b"old");
+            return;
+        }
+        let base =
+            std::env::temp_dir().join(format!("captionflow-lock-test-{}", std::process::id()));
+        let root = base.join("CaptionFlow");
+        let stage = base.join(".CaptionFlow-update-test");
+        fs::create_dir_all(&root).unwrap();
+        fs::create_dir_all(stage.join("CaptionFlow")).unwrap();
+        fs::write(root.join("version"), b"old").unwrap();
+        fs::write(stage.join("CaptionFlow/version"), b"new").unwrap();
+        let status = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "updater::tests::helper_releases_inherited_install_directory_lock",
+                "--nocapture",
+            ])
+            .env(CHILD, &base)
+            .current_dir(&root)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::remove_dir_all(base).unwrap();
+    }
     fn fixture() -> (SigningKey, Manifest) {
         let key = SigningKey::from_bytes(&[17; 32]);
         let entry = Entry {

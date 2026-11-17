@@ -17,7 +17,9 @@ $server = $null
 function Run-Installer([string]$Path) {
     $p = Start-Process -FilePath $Path -ArgumentList @('/S', "/D=$install") -PassThru
     if (-not $p.WaitForExit(600000)) { $p.Kill(); throw 'Installer timed out' }
-    if ($p.ExitCode -notin @(0,3010)) { throw "Installer failed: $Path ($($p.ExitCode))" }
+    if ($p.ExitCode -notin @(0,3010)) {
+        Get-Content -LiteralPath (Join-Path $env:TEMP 'CaptionFlow-online-download.log') -ErrorAction SilentlyContinue | Write-Host
+        throw "Installer failed: $Path ($($p.ExitCode))" }
     if (-not (Test-Path -LiteralPath (Join-Path $install 'Uninstall.exe'))) { throw 'Uninstaller missing' }
 }
 function Inventory {

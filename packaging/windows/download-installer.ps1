@@ -7,6 +7,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
+$logPath = Join-Path $env:TEMP 'CaptionFlow-online-download.log'
+function Write-Message([string]$Message) {
+    Write-Output $Message
+    Add-Content -LiteralPath $logPath -Value $Message -ErrorAction SilentlyContinue
+}
+Set-Content -LiteralPath $logPath -Value ('Starting download: ' + $DownloadUrl) -ErrorAction SilentlyContinue
 $partial = $Destination + '.partial'
 $client = $null; $response = $null; $inputStream = $null; $outputStream = $null; $deadline = $null
 try {
@@ -26,7 +32,7 @@ try {
     $client.DefaultRequestHeaders.UserAgent.ParseAdd('CaptionFlow-Installer')
     $deadline = New-Object Threading.CancellationTokenSource
     $deadline.CancelAfter([TimeSpan]::FromMinutes(20))
-    Write-Output 'Downloading app components...'
+    Write-Message 'Downloading app components...'
     $response = $client.GetAsync($uri, [Net.Http.HttpCompletionOption]::ResponseHeadersRead, $deadline.Token).GetAwaiter().GetResult()
     $response.EnsureSuccessStatusCode() | Out-Null
     $inputStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
@@ -39,7 +45,7 @@ try {
         $outputStream.Write($buffer, 0, $count)
         if ($received - $lastReport -ge 16MB) {
             $lastReport = $received
-            Write-Output ('Downloaded {0:N0} of {1:N0} MB' -f ($received / 1MB), ($ExpectedBytes / 1MB))
+            Write-Message ('Downloaded {0:N0} of {1:N0} MB' -f ($received / 1MB), ($ExpectedBytes / 1MB))
         }
     }
     $outputStream.Dispose(); $outputStream = $null
@@ -47,9 +53,9 @@ try {
     $actual = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actual -ne $ExpectedSHA256) { throw 'Installer checksum mismatch. Nothing was installed.' }
     [IO.File]::Move($partial, $Destination)
-    Write-Output 'App components verified.'
+    Write-Message 'App components verified.'
 } catch {
-    Write-Output ('Download failed: ' + $_.Exception.Message)
+    Write-Message ('Download failed: ' + $_.Exception.Message)
     exit 1
 } finally {
     if ($outputStream) { $outputStream.Dispose() }

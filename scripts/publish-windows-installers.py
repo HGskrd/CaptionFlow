@@ -17,7 +17,7 @@ def publish(directory):
     version=json.loads((ROOT/'Sources/CaptionFlow/Resources/worker/release.json').read_text())['version']
     assert manifest['version']==version
     report=json.loads((directory/'installer-test-report.json').read_text())
-    assert all(report[k] for k in ('same_installed_files','normal_preview','all_in_one_preview',
+    assert all(report[k] for k in ('portable_tests_verified','same_installed_files','normal_preview','all_in_one_preview',
                                   'uninstallation_verified','user_data_preserved','tampered_download_rejected','all_in_one_code_verified'))
     tag='v'+version
     release=json.loads(gh('release','view',tag,'--json','assets,isDraft'))

@@ -1,6 +1,6 @@
 # CaptionFlow Linux x86_64 preview — Arch and EndeavourOS
 
-The Linux release uses the same GPUI interface and v0.4.6 speech/translation
+The Linux release uses the same GPUI interface and v0.4.7 speech/translation
 engine as Windows and macOS. Nemotron recognition and Hy-MT2 translation support
 CPU and Vulkan without CUDA. The optional Phonon backend is not included in this
 Linux preview. Microphone, default-output monitor and mixed capture use PulseAudio
@@ -24,11 +24,11 @@ the app directory because it is not available in the official repositories.
 The other Python libraries, including Qt, use Arch packages and follow Arch
 Python upgrades.
 
-Alternatively, download the prebuilt **captionflow-bin-0.4.6-1-x86_64.pkg.tar.zst**
+Alternatively, download the prebuilt **captionflow-bin-0.4.7-1-x86_64.pkg.tar.zst**
 from the release and install it with:
 
 ```sh
-sudo pacman -U ./captionflow-bin-0.4.6-1-x86_64.pkg.tar.zst
+sudo pacman -U ./captionflow-bin-0.4.7-1-x86_64.pkg.tar.zst
 ```
 
 Pacman preserves an existing PulseAudio/PipeWire-Pulse provider and Vulkan

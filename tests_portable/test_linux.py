@@ -23,6 +23,7 @@ setup_linux = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(setup_linux)
 
 
+@unittest.skipIf(os.name == "nt", "POSIX Linux packaging contracts")
 class LinuxTests(unittest.TestCase):
     def test_linux_controls_and_xdg_storage(self):
         with patch.object(sys, "platform", "linux"), patch.dict(os.environ, {"XDG_DATA_HOME": "/tmp/captionflow-test"}):

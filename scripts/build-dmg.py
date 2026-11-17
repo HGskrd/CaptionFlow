@@ -13,7 +13,7 @@ args = parser.parse_args()
 args.output.parent.mkdir(parents=True, exist_ok=True)
 label = 'Apple Silicon' if args.arch == 'arm64' else 'Intel'
 dmgbuild.build_dmg(str(args.output.resolve()), f'CaptionFlow {label}', settings={
-    'format': 'UDZO', 'compression_level': 6, 'filesystem': 'HFS+',
+    'format': 'ULMO', 'filesystem': 'HFS+',
     'files': [str(args.app.resolve())], 'symlinks': {'Applications': '/Applications'},
     'background': str((args.art/f'installer-{args.arch}.png').resolve()),
     'badge_icon': str((args.art/'CaptionFlow.icns').resolve()),

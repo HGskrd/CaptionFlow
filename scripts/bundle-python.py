@@ -18,7 +18,8 @@ root = Path(__file__).resolve().parents[1]
 requirements = root / 'Sources/CaptionFlow/Resources/worker/requirements.txt'
 constraints = root / f'scripts/macos-requirements-{args.arch}.txt'
 stamp = {'python': '3.11.12', 'architecture': args.arch,
-         'requirements_sha256': hashlib.sha256(requirements.read_bytes() + constraints.read_bytes()).hexdigest()}
+         'requirements_sha256': hashlib.sha256(requirements.read_bytes() + constraints.read_bytes()).hexdigest(),
+         'profile_sha256': hashlib.sha256((root / 'scripts/slim-macos-runtime.py').read_bytes()).hexdigest()}
 output = args.output.resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 lock = output.with_suffix('.lock').open('w')
@@ -47,6 +48,7 @@ for key in ('PYTHONHOME', 'PYTHONPATH', 'VIRTUAL_ENV'):
     environment.pop(key, None)
 subprocess.run([str(python), '-I', '-m', 'pip', '--isolated', 'install', '--disable-pip-version-check',
                 '--no-compile', '-r', str(requirements), '-c', str(constraints)], check=True, env=environment)
+subprocess.run([str(python), str(root / 'scripts/slim-macos-runtime.py'), str(output), '--arch', args.arch], check=True, env=environment)
 modules = 'numpy, huggingface_hub, certifi'
 if args.arch == 'arm64':
     modules += ', mlx.core, mlx_whisper, mlx_lm, mlx_audio'

@@ -1,6 +1,6 @@
 # Maintainer: CaptionFlow maintainers <https://github.com/HGskrd/CaptionFlow>
 pkgname=captionflow-bin
-pkgver=0.4.6
+pkgver=0.4.7
 pkgrel=1
 pkgdesc='Private live captions and translation with a GPUI interface (Linux preview)'
 arch=('x86_64')

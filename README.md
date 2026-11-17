@@ -6,7 +6,7 @@ Private live captions and translation, with a GPUI interface.
 
 Windows: run the installer. Mac: open the DMG and drag CaptionFlow to Applications. Python and inference runtimes are included. Apple Silicon requires macOS 26+; Intel requires macOS 14+. Models download during setup when online participation is enabled.
 
-Linux (Arch/EndeavourOS): extract the archive and run `./setup-arch.sh`, then `./start-captionflow.sh`. See [Linux installation](docs/linux.md). Linux updates install manually; physical audio/GPU validation remains pending.
+Linux (Arch/EndeavourOS): download the **[PKGBUILD](https://github.com/HGskrd/CaptionFlow/releases/latest/download/PKGBUILD)** and run `makepkg -si`, or install the prebuilt `.pkg.tar.zst` using `pacman -U`. Launch `captionflow`. See [Linux installation](docs/linux.md). Linux updates install manually; physical audio/GPU validation remains pending.
 
 Choose your audio source, spoken language, and any number of translation targets in the inspector. Each target has its own caption lane. The inspector starts hidden; fullscreen shows only captions. Stop interrupts processing, and model loading shows its current stage and elapsed time.
 

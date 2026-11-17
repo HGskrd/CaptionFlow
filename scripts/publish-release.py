@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Publish one complete four-platform release after packaging and verification.
+"""Publish one complete platform release after packaging and verification.
 
 Run without --publish for a read-only preflight. Installers must be built from
-this checkout; attach only the four user downloads and their checksum file.
+this checkout; attach the installers, Linux archive, Arch package, PKGBUILD and their checksum file.
 """
 import argparse
 import hashlib
@@ -16,8 +16,12 @@ REPO='HGskrd/CaptionFlow'
 
 def validate(directory, version, notes):
     names=['CaptionFlow-Setup.exe','CaptionFlow-macOS-arm64.dmg','CaptionFlow-macOS-x86_64.dmg','CaptionFlow-Linux-x86_64.tar.gz']
+    arch_packages = list(directory.glob(f'captionflow-bin-{version}-*-x86_64.pkg.tar.zst'))
+    if len(arch_packages) != 1:
+        raise ValueError('A release requires exactly one matching Arch pacman package')
+    names += ['PKGBUILD', arch_packages[0].name]
     if any(not (directory/name).is_file() or (directory/name).stat().st_size==0 for name in names):
-        raise ValueError('A release requires Windows, both macOS installers and the Linux archive')
+        raise ValueError('A release requires all platform installers, the Linux archive, Arch package and PKGBUILD')
     if len(notes.split())>100 or len(notes)>1000:
         raise ValueError('Release notes must stay under 100 words and 1,000 characters')
     if subprocess.check_output(['git','status','--porcelain'],cwd=ROOT,text=True).strip():

@@ -3,6 +3,14 @@ on:
   workflow_dispatch:
   push:
     branches: [codex/linux-release]
+    paths:
+      - 'gpui/**'
+      - 'portable/**'
+      - 'native/**'
+      - 'Sources/**'
+      - 'scripts/build-linux.py'
+      - 'scripts/build-audio.py'
+      - 'scripts/setup-linux.py'
 permissions:
   contents: read
 jobs:

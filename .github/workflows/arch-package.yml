@@ -1,0 +1,68 @@
+name: Arch pacman package
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/linux-release]
+    paths:
+      - 'packaging/arch/**'
+      - '.github/workflows/arch-package.yml'
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 20
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Install Arch packaging and runtime dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git python python-numpy pyside6 \
+            python-psutil python-rapidfuzz python-cryptography python-cffi ca-certificates \
+            libpulse pulseaudio vulkan-swrast vulkan-icd-loader vulkan-tools \
+            libxcb libxkbcommon-x11 xcb-util-cursor xcb-util-keysyms xcb-util-wm \
+            libx11 libxrandr libxi wayland libglvnd fontconfig glib2 dbus gcc-libs \
+            openssl alsa-lib xorg-server-xvfb xorg-xauth ttf-dejavu desktop-file-utils
+      - uses: actions/checkout@v7.0.1
+      - name: Build using makepkg as an unprivileged user
+        run: |
+          useradd -m builder
+          install -d -o builder -g builder /home/builder/package
+          cp packaging/arch/PKGBUILD /home/builder/package/
+          chown builder:builder /home/builder/package/PKGBUILD
+          runuser -u builder -- bash -c 'cd /home/builder/package && makepkg --cleanbuild --noconfirm'
+          runuser -u builder -- bash -c 'cd /home/builder/package && makepkg --printsrcinfo > .SRCINFO'
+          mkdir -p dist/arch
+          cp /home/builder/package/*.pkg.tar.zst /home/builder/package/PKGBUILD /home/builder/package/.SRCINFO dist/arch/
+      - name: Install, launch and remove the pacman package
+        run: |
+          # The minimal Arch container excludes documentation by default.
+          # Include this package's complete inventory for the strict file check.
+          sed -i '/^NoExtract[[:space:]]*=/d' /etc/pacman.conf
+          pacman -U --noconfirm dist/arch/*.pkg.tar.zst
+          pacman -Qkk captionflow-bin
+          desktop-file-validate /usr/share/applications/captionflow.desktop
+          test ! -e /usr/lib/captionflow/wheels
+          test ! -e /usr/lib/captionflow/setup-arch.sh
+          export CAPTIONFLOW_SMOKE_EVIDENCE=/home/builder/pacman-smoke.json
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name '*lvp*' | head -1)"
+          export XDG_RUNTIME_DIR=/tmp/captionflow-runtime
+          mkdir -p "$XDG_RUNTIME_DIR"; chown builder "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+          runuser -u builder -- dbus-run-session -- xvfb-run -a timeout 45 captionflow --smoke-test
+          python -c 'import json; v=json.load(open("/home/builder/pacman-smoke.json")); assert v["preview"] and v["shutdown_received"] and v["original_characters"] > 0, v; print(v)'
+          test ! -d /home/builder/.local/share/captionflow/python
+          touch /home/builder/.local/share/captionflow/retain-on-uninstall
+          pacman -R --noconfirm captionflow-bin
+          test ! -e /usr/bin/captionflow
+          test ! -e /usr/lib/captionflow
+          test ! -e /usr/share/applications/captionflow.desktop
+          test -e /home/builder/.local/share/captionflow/retain-on-uninstall
+          cp /home/builder/pacman-smoke.json dist/arch/
+          cd dist/arch
+          sha256sum PKGBUILD *.pkg.tar.zst > ARCH-SHA256SUMS.txt
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: CaptionFlow-Arch-pacman-verified
+          path: dist/arch/
+          include-hidden-files: true

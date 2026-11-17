@@ -1,0 +1,101 @@
+# Maintainer: CaptionFlow maintainers <https://github.com/HGskrd/CaptionFlow>
+pkgname=captionflow-bin
+pkgver=0.4.6
+pkgrel=1
+pkgdesc='Private live captions and translation with a GPUI interface (Linux preview)'
+arch=('x86_64')
+url='https://github.com/HGskrd/CaptionFlow'
+# Upstream has not declared an application license. Do not invent a grant.
+license=('LicenseRef-unknown')
+depends=(
+  'python' 'python-numpy' 'pyside6' 'python-psutil' 'python-rapidfuzz'
+  'python-cryptography' 'python-cffi' 'ca-certificates'
+  'pulse-native-provider' 'libpulse' 'vulkan-driver' 'vulkan-icd-loader'
+  'libxcb' 'libxkbcommon-x11' 'xcb-util-cursor' 'xcb-util-keysyms' 'xcb-util-wm'
+  'libx11' 'libxrandr' 'libxi' 'wayland' 'libglvnd' 'fontconfig' 'glib2'
+  'dbus' 'gcc-libs' 'openssl' 'alsa-lib'
+)
+optdepends=('vulkan-tools: inspect available Vulkan devices with vulkaninfo')
+provides=("captionflow=$pkgver")
+conflicts=('captionflow')
+# Preserve the tested upstream ELF files. Debug symbols were disabled upstream.
+options=('!strip' '!debug')
+source=("CaptionFlow-${pkgver}-linux-x86_64.tar.gz::${url}/releases/download/v${pkgver}/CaptionFlow-Linux-x86_64.tar.gz")
+sha256sums=('69ea322ee8eb57abd0e104cc7a8883fef5f15a5a80c4d619f399cd30bf5c3f82')
+
+check() {
+  # Check the upstream identity without executing the app during packaging.
+  python - "$pkgver" <<'PY'
+import sys
+import json
+from pathlib import Path
+root = Path('CaptionFlow')
+release = json.loads((root / 'Sources/CaptionFlow/Resources/worker/release.json').read_text())
+assert release['version'] == sys.argv[1], release
+for name in ('CaptionFlowGPUI', 'portable/caption_audio.so'):
+    assert (root / name).read_bytes()[:4] == b'\x7fELF', name
+PY
+}
+
+package() {
+  local _app="$pkgdir/usr/lib/captionflow"
+  install -d "$_app" "$pkgdir/usr/bin" "$pkgdir/usr/share/applications"
+  cp -a CaptionFlow/portable CaptionFlow/Sources CaptionFlow/docs "$_app/"
+  install -Dm755 CaptionFlow/CaptionFlowGPUI "$_app/CaptionFlowGPUI"
+  # Python/Qt are supplied by pacman. Only SoundCard, absent from the official
+  # repositories, is vendored privately from the checksum-verified release.
+  python - "$srcdir/CaptionFlow" "$_app" <<'PY'
+from pathlib import Path
+import sys
+import zipfile
+source, app = map(Path, sys.argv[1:])
+wheel = source / 'wheels/soundcard-0.4.6-py3-none-any.whl'
+with zipfile.ZipFile(wheel) as archive:
+    for name in archive.namelist():
+        path = Path(name)
+        if path.is_absolute() or '..' in path.parts:
+            raise ValueError('Unsafe SoundCard wheel path')
+    archive.extractall(app / 'python')
+PY
+  # The package never invokes pip, sudo, pacman or a first-run setup script.
+  rm -f "$_app/portable/linux_launcher.py"
+  find "$_app" -type d -name __pycache__ -prune -exec rm -rf '{}' +
+  cat > "$pkgdir/usr/bin/captionflow" <<'SH'
+#!/bin/sh
+export CAPTIONFLOW_PYTHON=/usr/bin/python
+export PYTHONDONTWRITEBYTECODE=1
+export PYTHONPATH=/usr/lib/captionflow/python
+exec /usr/lib/captionflow/CaptionFlowGPUI "$@"
+SH
+  chmod 755 "$pkgdir/usr/bin/captionflow"
+  cat > "$pkgdir/usr/share/applications/captionflow.desktop" <<'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=CaptionFlow
+Comment=Private live subtitles and translation
+Exec=captionflow
+Icon=captionflow
+Terminal=false
+Categories=AudioVideo;Accessibility;
+StartupWMClass=CaptionFlow
+DESKTOP
+  install -Dm644 CaptionFlow/portable/resources/CaptionFlow.ico \
+    "$pkgdir/usr/share/pixmaps/captionflow.ico"
+  install -Dm644 CaptionFlow/portable/requirements-linux.txt \
+    "$pkgdir/usr/share/doc/captionflow/requirements-upstream.txt"
+  cat > "$pkgdir/usr/share/doc/captionflow/README" <<'README'
+Launch captionflow or use the application menu. Dependencies and application
+files are managed by pacman; setup-arch.sh and pip installation are not needed.
+Models and preferences remain in ~/.local/share/captionflow (or XDG_DATA_HOME).
+Choose CPU or Vulkan, authorize model downloads or supply models offline, then
+set up models from the app. No captured audio or captions are uploaded.
+README
+  install -Dm644 "$_app/python/soundcard-0.4.6.dist-info/licenses/LICENSE" \
+    "$pkgdir/usr/share/licenses/$pkgname/SoundCard-LICENSE"
+  cat > "$pkgdir/usr/share/licenses/$pkgname/NOTICE" <<'NOTICE'
+CaptionFlow v0.4.6 has no declared application license in its upstream source.
+This packaging recipe does not assign an application license.
+SoundCard's BSD license is retained alongside this notice. The native CPU/Vulkan
+runtime archives retain their upstream licenses inside their original archives.
+NOTICE
+}

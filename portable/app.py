@@ -14,7 +14,7 @@ from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QPlainTextEdit, QFileDialog, QSpinBox, QMessageBox, QCheckBox)
-from common import ROOT, WorkerSession, doctor, hardware, redact
+from common import ROOT, WorkerSession, doctor, hardware, redact, compute_backends, default_data_directory, seed_bundled_data
 from runtime_assets import install
 from feedback import Feedback, VERSION
 from caption_display import CaptionPane, MODES, load_settings
@@ -46,16 +46,17 @@ class Window(QMainWindow):
         models = QHBoxLayout(); layout.addLayout(models)
         self.speech = QComboBox()
         for label, identity in (("Nemotron 3.5 · 0.6B · streaming", "nemotron"), ("Phonon 2.5 · compact · CPU chunks", "phonon")):
-            self.speech.addItem(label, identity)
+            if not sys.platform.startswith("linux") or identity == "nemotron":
+                self.speech.addItem(label, identity)
         models.addWidget(QLabel("Speech")); models.addWidget(self.speech)
         models.addStretch()
         controls = QHBoxLayout(); layout.addLayout(controls)
-        self.backend = QComboBox(); self.backend.addItems(["Vulkan", "CPU"] if os.name == "nt" else ["Metal", "CPU"])
+        self.backend = QComboBox(); self.backend.addItems(compute_backends())
         controls.addWidget(QLabel("Compute / translation")); controls.addWidget(self.backend)
         self.setup = QPushButton("Download / verify models"); self.setup.clicked.connect(self.install_models); controls.addWidget(self.setup)
         self.input = QComboBox()
         for label, mode in (("Microphone + call audio", "mixed"), ("Microphone", "microphone"), ("System audio", "system")):
-            if os.name == "nt" or mode == "microphone": self.input.addItem(label, mode)
+            if os.name == "nt" or sys.platform.startswith("linux") or mode == "microphone": self.input.addItem(label, mode)
         controls.addWidget(self.input)
         self.echo = QCheckBox("Speaker echo cancellation"); self.echo.setChecked(True)
         self.echo.setToolTip("Removes speaker leakage from your microphone before mixing. You can turn this off when using headphones.")
@@ -246,6 +247,7 @@ class Window(QMainWindow):
         backend = self.backend.currentText().lower(); destination = self.config_path()
         speech = self.speech.currentData()
         def setup():
+            seed_bundled_data(self.data)
             config = install(self.data, backend, progress=self.signals.status.emit, allow_network=self.feedback.allowed, speech=speech)
             evidence = doctor(config)
             destination.write_text(json.dumps(config, indent=2), encoding="utf-8")
@@ -261,7 +263,7 @@ class Window(QMainWindow):
         except Exception as exc:
             self.status(str(exc)); return
         mode = self.input.currentData()
-        if mode != "microphone" and os.name != "nt":
+        if mode != "microphone" and sys.platform == "darwin":
             self.status("Use the native macOS app for Mac system audio capture."); return
         self.latest_revision = 0; self.latest_caption = None; self.translated_revision = 0
         self.original.reset(); self.translated.reset(); self.transcript_link.resume(); self.last_speech = float("-inf")

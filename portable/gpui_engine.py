@@ -17,7 +17,7 @@ from PySide6.QtGui import QFont, QFontMetricsF, QIcon
 from PySide6.QtWidgets import QApplication
 from app import Window
 from caption_display import CaptionPane
-from common import WORKER_DIR
+from common import WORKER_DIR, default_data_directory, seed_bundled_data
 LANGUAGES = json.loads((WORKER_DIR / "languages.json").read_text())
 from transcript_scroll import Span, anchor_at, position_for
 
@@ -187,13 +187,7 @@ class Backend(Window):
         def setup():
             # The GPUI entry point bypasses the old windowed launcher, so seed
             # its bundled SDK archives here before any offline setup attempt.
-            import shutil
-            downloads = self.data / 'downloads'; downloads.mkdir(exist_ok=True)
-            for archive in (Path(__file__).parent / 'data/downloads').glob('*.zip'):
-                destination = downloads / archive.name
-                if not destination.exists():
-                    progress('Preparing bundled runtime: ' + archive.name)
-                    shutil.copy2(archive, destination)
+            seed_bundled_data(self.data)
             config = install(self.data, backend, progress=progress, allow_network=self.feedback.allowed, speech=speech)
             if speech == 'nemotron' and self.extra.get('diarizationModel'):
                 resolve_model(self.extra['diarizationModel'], self.data/'models', self.feedback.allowed, progress)
@@ -358,7 +352,7 @@ def main():
     wire.reconfigure(encoding="utf-8", line_buffering=True)
     sys.stdin.reconfigure(encoding="utf-8")
     sys.stdout = sys.stderr
-    data = Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'CaptionFlow'
+    data = default_data_directory() if sys.platform.startswith('linux') else Path(os.environ.get('LOCALAPPDATA', str(Path.home()))) / 'CaptionFlow'
     app = QApplication(sys.argv[:1]); app.setQuitOnLastWindowClosed(False)
     app.setWindowIcon(QIcon(str(Path(__file__).parent / 'resources/CaptionFlow.ico')))
     backend = Backend(data)

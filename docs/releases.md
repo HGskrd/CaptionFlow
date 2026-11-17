@@ -1,6 +1,6 @@
 # Releases
 
-Use one `vX.Y.Z` release containing exactly three user downloads and `SHA256SUMS.txt`. Do not publish platform-only releases or relabel old binaries. Keep notes under 100 words, covering changes and installation requirements; store test details in this repository.
+Use one `vX.Y.Z` release containing four user downloads and `SHA256SUMS.txt`. Do not publish platform-only releases or relabel old binaries. Keep notes under 100 words, covering changes and installation requirements; store test details in this repository.
 
 `Sources/CaptionFlow/Resources/worker/release.json` is the version and increasing update sequence shared by the clients and packaging. The Rust package version must match. GPUI is the release frontend on all platforms. `script/build_and_run.sh` builds and launches a development Mac app; `script/test_native.sh` runs the native suite.
 
@@ -8,7 +8,7 @@ Use one `vX.Y.Z` release containing exactly three user downloads and `SHA256SUMS
 
 1. Commit the candidate and run **Windows installer** from that exact branch in GitHub Actions. It builds GPUI on Windows, assembles the installer on Linux, then installs, launches and tests it on Windows. Use the `CaptionFlow-Windows-verified` artifact only after the whole run succeeds.
 2. For both Mac DMGs, run `PACKAGING_PYTHON=.venv/bin/python PYTHON=.venv/bin/python ./scripts/release-macos.sh`. Packaging Python needs Pillow and dmgbuild; Rust 1.98.0, both Mac Rust targets, Xcode Swift tools, and the existing CaptionFlow signing identity are required. Runtime dependencies are pinned by architecture. Test both installed bundles, including the Intel build under Rosetta.
-3. Assemble the three installers in one directory. Run `.venv/bin/python scripts/publish-release.py DIRECTORY --notes docs/releases/vX.Y.Z.md` for preflight; add `--publish` only after the install/update acceptance checks pass. Uploads go to a draft and become public only with all three installers and checksums.
+3. Assemble the four installers in one directory. Run `.venv/bin/python scripts/publish-release.py DIRECTORY --notes docs/releases/vX.Y.Z.md` for preflight; add `--publish` only after the install/update acceptance checks pass. Uploads go to a draft and become public only with all four installers and checksums.
 
 ## Component updates
 
@@ -34,3 +34,14 @@ Signing does not guarantee an immediate SmartScreen reputation pass. [Microsoft'
 Speaker detection is optional. With Nemotron selected, enable the pinned ~107 MB Nemotron-3-Diarization companion or choose a compatible local Sortformer GGUF. It runs as a separate session-long stream; confident speaker labels color the corresponding source and translation rows consistently. Ambiguous overlapping turns stay neutral. A lagging or unavailable sidecar leaves captions running. The model downloads only during an authorized setup; other engines keep their normal caption colors.
 
 Translation choices follow the [Hy-MT2 language list](https://huggingface.co/tencent/Hy-MT2-1.8B#supported-languages); the Mac inspector also accepts a custom language name. Translation accuracy and latency depend on the selected model and hardware. Each additional target needs inference work.
+
+## Linux preview
+
+Linux x86_64 uses GPUI with X11/Wayland and the shared portable engine. Run the
+**Linux Arch preview** workflow on the candidate branch. It builds/tests on Arch,
+packages the GPUI executable, audio DSP and Python wheels, installs the extracted
+archive offline as an unprivileged user, and checks preview/shutdown under Xvfb
+with software Vulkan. Attach `CaptionFlow-Linux-x86_64.tar.gz` from the verified
+artifact to the unified release and append its checksum. Label it as a preview
+until physical microphone, monitor capture and hardware Vulkan are checked.
+Linux component updates are disabled; install new archives manually.

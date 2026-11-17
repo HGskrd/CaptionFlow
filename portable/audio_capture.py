@@ -9,11 +9,13 @@ import time
 import traceback
 import numpy as np
 from audio_pipeline import Mixer, RATE, FRAME, LATENCY
+from common import audio_device
+import sys
 
 
 def capture(mode, diagnostic, echo=True):
     import soundcard as sc
-    if os.name != 'nt' and mode != 'microphone':
+    if sys.platform == 'darwin' and mode != 'microphone':
         raise RuntimeError('Use the native Mac app for simultaneous Mac audio and microphone capture')
     started=time.monotonic(); origin=started+.25
     mixer=Mixer(origin,mode,echo)
@@ -39,7 +41,7 @@ def capture(mode, diagnostic, echo=True):
                 result=ctypes.windll.ole32.CoInitializeEx(None,0)
                 if result not in (0,1):raise RuntimeError('Audio thread COM initialization failed')
                 com=True
-            device=sc.default_microphone() if source==0 else sc.get_microphone(sc.default_speaker().id,include_loopback=True)
+            device=audio_device(sc, source==1)
             if device is None:raise RuntimeError('Required audio endpoint unavailable')
             # All native channels, then downmix. SoundCard mono WASAPI capture is unreliable.
             with device.recorder(samplerate=RATE,blocksize=FRAME*2) as recorder:
@@ -58,7 +60,6 @@ def capture(mode, diagnostic, echo=True):
             if com:ctypes.windll.ole32.CoUninitialize()
     threads=[threading.Thread(target=record,args=(s,),daemon=True) for s in sources]
     for thread in threads:thread.start()
-    import sys
     next_frame=None; pending=[]; last_save=0; processing=0
     try:
         while not stopped.is_set():

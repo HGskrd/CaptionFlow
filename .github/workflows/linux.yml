@@ -1,0 +1,83 @@
+name: Linux Arch preview
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/linux-release]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    container: archlinux:latest
+    timeout-minutes: 60
+    env:
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - name: Install Arch build and desktop dependencies
+        run: |
+          pacman -Syu --noconfirm --needed base-devel clang cmake git pkgconf rustup python python-pip \
+            fontconfig libxkbcommon-x11 libxcb xcb-util-cursor xcb-util-keysyms xcb-util-wm \
+            libx11 libxrandr libxi wayland libglvnd glib2 dbus openssl alsa-lib \
+            vulkan-icd-loader vulkan-tools vulkan-swrast xorg-server-xvfb xorg-xauth \
+            pulseaudio ttf-dejavu
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/cache/restore@v4
+        id: cargo-cache
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            gpui/target
+          key: arch-gpui-${{ hashFiles('gpui/Cargo.lock') }}
+      - name: Build and test GPUI on Arch
+        working-directory: gpui
+        run: |
+          rustup toolchain install 1.98.0 --profile minimal
+          rustup run 1.98.0 cargo test --locked
+          rustup run 1.98.0 cargo build --release --locked
+      - name: Prepare private packaging environment
+        run: |
+          python -m venv .venv-linux
+          .venv-linux/bin/python -m pip install -r portable/requirements-linux.txt
+      - name: Check Linux engine and audio pipeline
+        run: |
+          .venv-linux/bin/python scripts/build-audio.py
+          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_linux.py'
+          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_gpui_engine.py'
+          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_audio_pipeline.py'
+      - name: Package Linux archive
+        run: |
+          .venv-linux/bin/python scripts/build-linux.py --python-version "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
+      - name: Verify extracted GPUI application
+        run: |
+          mkdir -p dist/acceptance
+          tar -xzf dist/CaptionFlow-Linux-x86_64.tar.gz -C dist/acceptance
+          useradd -m captionflow
+          chown -R captionflow dist/acceptance
+          runuser -u captionflow -- dist/acceptance/CaptionFlow/setup-arch.sh --skip-system-packages --offline
+          export CAPTIONFLOW_SMOKE_EVIDENCE=/home/captionflow/linux-smoke.json
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name '*lvp*' | head -1)"
+          export XDG_RUNTIME_DIR=/tmp/captionflow-runtime
+          mkdir -p "$XDG_RUNTIME_DIR"; chown captionflow "$XDG_RUNTIME_DIR"; chmod 700 "$XDG_RUNTIME_DIR"
+          runuser -u captionflow -- dbus-run-session -- xvfb-run -a timeout 45 dist/acceptance/CaptionFlow/start-captionflow.sh --smoke-test
+          cp /home/captionflow/linux-smoke.json dist/linux-smoke.json
+          .venv-linux/bin/python -c 'import json; v=json.load(open("dist/linux-smoke.json")); assert v["preview"] and v["shutdown_received"] and v["original_characters"] > 0, v; print(v)'
+          cd dist
+          sha256sum CaptionFlow-Linux-x86_64.tar.gz > CaptionFlow-Linux-x86_64.sha256
+      - uses: actions/cache/save@v4
+        if: always() && steps.cargo-cache.outputs.cache-hit != 'true'
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            gpui/target
+          key: arch-gpui-${{ hashFiles('gpui/Cargo.lock') }}
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: CaptionFlow-Linux-verified
+          path: |
+            dist/CaptionFlow-Linux-x86_64.tar.gz
+            dist/CaptionFlow-Linux-x86_64.sha256
+            dist/linux-smoke.json

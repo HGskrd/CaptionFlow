@@ -68,6 +68,8 @@ fn now() -> u64 {
 fn platform() -> &'static str {
     if cfg!(target_os = "windows") {
         "windows-x86_64"
+    } else if cfg!(target_os = "linux") {
+        "linux-x86_64"
     } else if cfg!(target_arch = "aarch64") {
         "macos-aarch64"
     } else {
@@ -396,6 +398,12 @@ impl Updates {
         }
     }
     pub fn check(&self) {
+        if cfg!(target_os = "linux") {
+            let mut state = self.state.lock().unwrap();
+            state.phase = "current".into();
+            state.message = "Linux preview updates are available on GitHub Releases".into();
+            return;
+        }
         if !self.online() {
             return;
         }
@@ -625,7 +633,12 @@ fn relaunch(root: &Path) -> Result<()> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Command::new(root.join("CaptionFlowGPUI.exe")).spawn()?;
+        Command::new(root.join(if cfg!(target_os = "linux") {
+            "start-captionflow.sh"
+        } else {
+            "CaptionFlowGPUI.exe"
+        }))
+        .spawn()?;
     }
     Ok(())
 }

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import platform
 import queue
+import shutil
 import subprocess
 import sys
 import threading
@@ -13,6 +14,50 @@ import time
 ROOT = Path(__file__).resolve().parents[1]
 WORKER_DIR = ROOT / "Sources/CaptionFlow/Resources/worker"
 sys.path.insert(0, str(WORKER_DIR))
+
+
+def compute_backends():
+    return ["Metal", "CPU"] if sys.platform == "darwin" else ["Vulkan", "CPU"]
+
+
+def default_data_directory():
+    if sys.platform.startswith("linux"):
+        return Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share") / "captionflow"
+    return Path(__file__).parent / "data"
+
+
+def system_audio_label():
+    if sys.platform.startswith("linux"):
+        return "System audio (PulseAudio / PipeWire)"
+    return "System audio (Windows)" if os.name == "nt" else None
+
+
+def audio_device(soundcard, loopback):
+    if not loopback:
+        device = soundcard.default_microphone()
+    else:
+        speaker = soundcard.default_speaker()
+        if speaker is None:
+            raise RuntimeError("No default audio output is available for system audio capture")
+        identity = speaker.id + ".monitor" if sys.platform.startswith("linux") else speaker.id
+        device = soundcard.get_microphone(identity, include_loopback=True)
+    if device is None:
+        raise RuntimeError("No default audio input is available")
+    return device
+
+
+def seed_bundled_data(destination):
+    """Keep Linux installs read-only; copy bundled runtime/model caches into XDG data."""
+    destination = Path(destination).resolve()
+    source = ROOT / "portable/data"
+    if source.resolve() == destination:
+        return
+    for folder in ("downloads", "models"):
+        for path in (source / folder).glob("*"):
+            target = destination / folder / path.name
+            if path.is_file() and not path.name.endswith(".partial") and not target.exists():
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(path, target)
 
 
 def hidden_process():

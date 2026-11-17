@@ -83,7 +83,12 @@ mod portable {
                 .create(true)
                 .append(true)
                 .open(std::env::temp_dir().join("CaptionFlow-engine.log"))?;
-            let mut command = Command::new(root.join("python/python.exe"));
+            #[cfg(target_os = "linux")]
+            let python = std::env::var_os("CAPTIONFLOW_PYTHON")
+                .ok_or("Launch CaptionFlow using start-captionflow.sh after setup")?;
+            #[cfg(not(target_os = "linux"))]
+            let python = root.join("python/python.exe");
+            let mut command = Command::new(python);
             command
                 .arg("-u")
                 .arg(root.join("portable/gpui_engine.py"))

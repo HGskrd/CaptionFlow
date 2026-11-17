@@ -21,6 +21,9 @@ sha2 = "0.10"
 ureq = "3"
 zip = { version = "4", default-features = false, features = ["deflate"] }
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gpui = { version = "=0.2.2", default-features = false, features = ["font-kit", "runtime_shaders", "x11", "wayland"] }
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
@@ -32,3 +35,6 @@ winresource = "0.1"
 
 [profile.dev]
 debug = 0
+
+[patch.crates-io]
+xattr = { path = "vendor/xattr" }

@@ -2,9 +2,11 @@
 
 Private live captions and translation, with a GPUI interface.
 
-**[Windows x64](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Setup.exe)** · **[Mac Apple Silicon](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-arm64.dmg)** · **[Mac Intel](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-x86_64.dmg)**
+**[Windows x64](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Setup.exe)** · **[Mac Apple Silicon](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-arm64.dmg)** · **[Mac Intel](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-x86_64.dmg)** · **[Linux x86_64 preview](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Linux-x86_64.tar.gz)**
 
 Windows: run the installer. Mac: open the DMG and drag CaptionFlow to Applications. Python and inference runtimes are included. Apple Silicon requires macOS 26+; Intel requires macOS 14+. Models download during setup when online participation is enabled.
+
+Linux (Arch/EndeavourOS): extract the archive and run `./setup-arch.sh`, then `./start-captionflow.sh`. See [Linux installation](docs/linux.md). Linux updates install manually; physical audio/GPU validation remains pending.
 
 Choose your audio source, spoken language, and any number of translation targets in the inspector. Each target has its own caption lane. The inspector starts hidden; fullscreen shows only captions. Stop interrupts processing, and model loading shows its current stage and elapsed time.
 

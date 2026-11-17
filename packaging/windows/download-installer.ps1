@@ -50,7 +50,16 @@ try {
     }
     $outputStream.Dispose(); $outputStream = $null
     if ($received -ne $ExpectedBytes) { throw 'The installer download is incomplete.' }
-    $actual = (Get-FileHash -LiteralPath $partial -Algorithm SHA256).Hash.ToLowerInvariant()
+    # NSIS invokes 32-bit Windows PowerShell; do not depend on module discovery
+    # or on the parent process's PSModulePath (which may point to PowerShell 7).
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    $hashStream = [IO.File]::OpenRead($partial)
+    try {
+        $actual = [BitConverter]::ToString($hasher.ComputeHash($hashStream)).Replace('-', '').ToLowerInvariant()
+    } finally {
+        $hashStream.Dispose()
+        $hasher.Dispose()
+    }
     if ($actual -ne $ExpectedSHA256) { throw 'Installer checksum mismatch. Nothing was installed.' }
     [IO.File]::Move($partial, $Destination)
     Write-Message 'App components verified.'

@@ -63,6 +63,7 @@ try {
     $badSize = (Get-Item -LiteralPath (Join-Path $Directory 'bad.bin')).Length
     & "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -NonInteractive -File $helper -DownloadUrl 'http://127.0.0.1:8847/bad.bin' -AllowLoopback -ExpectedSHA256 ('0'*64) -ExpectedBytes $badSize -Destination $badDestination
     if ($LASTEXITCODE -eq 0 -or (Test-Path -LiteralPath $badDestination) -or (Test-Path -LiteralPath ($badDestination+'.partial'))) { throw 'Bad checksum was accepted or left a payload behind' }
+    if (-not (Select-String -LiteralPath (Join-Path $env:TEMP 'CaptionFlow-online-download.log') -SimpleMatch 'Installer checksum mismatch' -Quiet)) { throw 'Negative fixture failed before checksum validation' }
     Run-Installer (Join-Path $Directory 'CaptionFlow-Setup-All-in-One.exe')
     $full = Inventory
     Smoke 'all-in-one'

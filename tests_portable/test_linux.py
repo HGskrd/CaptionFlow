@@ -11,6 +11,9 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
+if os.name == "nt":
+    raise unittest.SkipTest("Linux packaging requires POSIX tools")
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "portable"))
 import common

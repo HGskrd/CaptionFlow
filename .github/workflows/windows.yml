@@ -6,6 +6,10 @@ on:
         description: Diagnose an existing Windows package run instead of building (optional)
         required: false
         type: string
+      package_run:
+        description: Re-test an existing Windows package with identical runtime inputs (optional)
+        required: false
+        type: string
       gpui_run:
         description: Reuse a GPUI-Windows artifact from a prior run with identical GPUI sources (optional)
         required: false
@@ -17,7 +21,7 @@ permissions:
   contents: read
 jobs:
   gpui:
-    if: inputs.diagnose_run == ''
+    if: inputs.diagnose_run == '' && inputs.package_run == ''
     runs-on: windows-latest
     permissions:
       contents: read
@@ -78,7 +82,7 @@ jobs:
           name: GPUI-Windows
           path: gpui/target/release/CaptionFlowGPUI.exe
   build:
-    if: inputs.diagnose_run == ''
+    if: inputs.diagnose_run == '' && inputs.package_run == ''
     needs: gpui
     runs-on: ubuntu-24.04
     steps:
@@ -113,19 +117,36 @@ jobs:
             dist/CaptionFlow-Setup.exe
             dist/CaptionFlow-Windows-x64.zip
   test:
-    if: inputs.diagnose_run == ''
+    if: always() && inputs.diagnose_run == '' && (inputs.package_run != '' || needs.build.result == 'success')
     timeout-minutes: 15
     needs: build
     runs-on: windows-latest
     permissions:
       contents: read
+      actions: read
       id-token: write
     steps:
       - uses: actions/checkout@v7.0.1
+      - name: Verify reusable installer inputs
+        if: inputs.package_run != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.package_run }}
+        run: |
+          if ($env:SOURCE_RUN -notmatch '^\d+$') { throw 'Invalid source run' }
+          $source = gh api "repos/${{ github.repository }}/actions/runs/$env:SOURCE_RUN" --jq .head_sha
+          if ($LASTEXITCODE -ne 0) { throw 'Unknown package run' }
+          git fetch origin $source --depth=1
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot verify package source' }
+          git diff --exit-code $source HEAD -- gpui Sources portable native scripts/build-windows.py scripts/build-audio.py packaging/assets packaging/windows
+          if ($LASTEXITCODE -ne 0) { throw 'Installer inputs changed; build a new installer' }
       - uses: actions/download-artifact@v8.0.2
         with:
           name: CaptionFlow-Windows
           path: dist
+          run-id: ${{ inputs.package_run }}
+          github-token: ${{ github.token }}
       - uses: ./.github/actions/sign-windows
         with:
           files: ${{ github.workspace }}\dist\CaptionFlow-Setup.exe
@@ -177,7 +198,7 @@ jobs:
             dist/gpui-stdout.log
             dist/gpui-stderr.log
   mac:
-    if: inputs.diagnose_run == ''
+    if: inputs.diagnose_run == '' && inputs.package_run == ''
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v7.0.1

@@ -68,8 +68,14 @@
     "bundled_bytecode_files": 0
   },
   "ci": {
-    "windows": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065837071",
-    "linux": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065838444"
+    "windows": "https://github.com/HGskrd/CaptionFlow/actions/runs/44078432167",
+    "linux": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065838444",
+    "arch": "https://github.com/HGskrd/CaptionFlow/actions/runs/44078190225"
   },
-  "scope": "Synthetic offline speech fixtures; no new physical capture or broad accuracy certification."
+  "scope": "Synthetic offline speech fixtures; no new physical capture or broad accuracy certification.",
+  "component_update_deployment": {
+    "status": "SSH connection timed out",
+    "production_feed_version": "0.4.6",
+    "prepared_mac_manifests": true
+  }
 }

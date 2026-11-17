@@ -139,7 +139,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Unknown package run' }
           git fetch origin $source --depth=1
           if ($LASTEXITCODE -ne 0) { throw 'Cannot verify package source' }
-          git diff --exit-code $source HEAD -- gpui Sources portable native scripts/build-windows.py scripts/build-audio.py packaging/assets packaging/windows
+          git diff --exit-code $source HEAD -- gpui Sources portable native scripts/build-windows.py scripts/build-audio.py packaging/assets packaging/windows.nsi
           if ($LASTEXITCODE -ne 0) { throw 'Installer inputs changed; build a new installer' }
       - uses: actions/download-artifact@v8.0.2
         with:

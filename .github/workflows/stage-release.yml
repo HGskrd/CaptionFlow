@@ -33,8 +33,8 @@ jobs:
           set -euo pipefail
           for platform in windows linux arch; do
             case "$platform" in
-              windows) run="$WINDOWS_RUN"; paths=(gpui portable Sources native scripts/build-windows.py scripts/build-audio.py packaging/windows) ;;
-              linux) run="$LINUX_RUN"; paths=(gpui portable Sources native scripts/build-linux.py scripts/build-audio.py scripts/setup-linux.py) ;;
+              windows) run="$WINDOWS_RUN"; paths=(gpui portable Sources native scripts/build-windows.py scripts/build-audio.py packaging/assets packaging/windows.nsi docs/fixtures) ;;
+              linux) run="$LINUX_RUN"; paths=(gpui portable Sources native scripts/build-linux.py scripts/build-audio.py scripts/setup-linux.py docs/fixtures) ;;
               arch) run="$ARCH_RUN"; paths=(packaging/arch) ;;
             esac
             [[ "$run" =~ ^[0-9]+$ ]]
@@ -45,8 +45,8 @@ jobs:
           done
           version=$(python3 -c 'import json; print(json.load(open("Sources/CaptionFlow/Resources/worker/release.json"))["version"])')
           echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
-          gh release view "v$version" --json isDraft > /tmp/release-draft.json
-          python3 -c 'import json; assert json.load(open("/tmp/release-draft.json"))["isDraft"], "Refusing to change a public release"'
+          gh release view "v$version" --json isDraft,targetCommitish > /tmp/release-draft.json
+          python3 -c 'import json,subprocess; r=json.load(open("/tmp/release-draft.json")); assert r["isDraft"] and r["targetCommitish"]==subprocess.check_output(["git","rev-parse","HEAD"],text=True).strip(), "Draft must belong to this exact candidate"'
       - uses: actions/download-artifact@v8.0.2
         with:
           name: CaptionFlow-Windows-verified

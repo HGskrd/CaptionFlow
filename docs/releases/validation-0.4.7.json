@@ -1,0 +1,75 @@
+{
+  "version": "0.4.7",
+  "macos_arm64": {
+    "previous_dmg_bytes": 336227328,
+    "dmg_bytes": 89556480,
+    "dmg_sha256": "868c5e5bbe3720a80d465aac050b8db31d81a0c7ab3830e4ea157ddce8ea0413",
+    "runtime_profile": {
+      "profile": 1,
+      "architecture": "arm64",
+      "before_bytes": 1211068871,
+      "after_bytes": 474336276,
+      "removed_distributions": {
+        "networkx": "3.6.1",
+        "torch": "2.14.0",
+        "sympy": "1.14.0",
+        "llvmlite": "0.49.0",
+        "mpmath": "1.3.0",
+        "numba": "0.67.0"
+      },
+      "whisper_word_timestamps": false
+    },
+    "fixture_transcripts_match_original_runtime": {
+      "whisper": "The train leaves at 9 tomorrow morning.",
+      "parakeet": "The train leaves at 9 tomorrow morning.",
+      "qwen3_asr": "The train leaves at nine tomorrow morning.",
+      "voxtral_realtime": "The train leaves at 9 tomorrow morning.",
+      "phonon2": "The train leaves at 9 tomorrow morning."
+    }
+  },
+  "installed_macos": [
+    {
+      "architecture": "arm64",
+      "version": "0.4.7",
+      "minimum_macos": "26.0",
+      "dmg_verified": true,
+      "finder_layout_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_python_verified": true,
+      "external_python_required": false,
+      "downloads_during_inference": false,
+      "source": "The train leaves at 9 tomorrow morning.",
+      "translation": "Le train part \u00e0 9 heures demain matin.",
+      "inference_seconds": 3.03,
+      "execution": "native Apple Silicon"
+    },
+    {
+      "architecture": "x86_64",
+      "version": "0.4.7",
+      "minimum_macos": "14.0",
+      "dmg_verified": true,
+      "finder_layout_verified": true,
+      "relocated_signature_verified": true,
+      "bundled_python_verified": true,
+      "external_python_required": false,
+      "downloads_during_inference": false,
+      "source": "the train leaves at nine tomorrow morning",
+      "translation": "Le train part \u00e0 neuf heures demain matin",
+      "inference_seconds": 13.48,
+      "execution": "Rosetta on Apple Silicon"
+    }
+  ],
+  "checks": {
+    "native_tests": 48,
+    "worker_tests": 20,
+    "runtime_slimming_tests": 3,
+    "cached_translation_matches_fresh": true,
+    "signed_component_swap_and_tamper_rejection": true,
+    "bundled_bytecode_files": 0
+  },
+  "ci": {
+    "windows": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065837071",
+    "linux": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065838444"
+  },
+  "scope": "Synthetic offline speech fixtures; no new physical capture or broad accuracy certification."
+}

@@ -12,6 +12,7 @@ import sys
 import tempfile
 import time
 
+os.environ["PYTHONDONTWRITEBYTECODE"] = "1"
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

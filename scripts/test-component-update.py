@@ -17,6 +17,10 @@ import sys
 import time
 
 ROOT=Path(__file__).resolve().parents[1]; os.chdir(ROOT)
+release=json.loads((ROOT/'Sources/CaptionFlow/Resources/worker/release.json').read_text())
+OLD_SEQUENCE=release['sequence']; NEW_SEQUENCE=OLD_SEQUENCE+1
+OLD_VERSION=release['version']
+parts=OLD_VERSION.split('.'); parts[-1]=str(int(parts[-1])+1); NEW_VERSION='.'.join(parts)
 assert sys.platform == 'darwin', 'This installed-bundle acceptance uses macOS'
 directory=ROOT/'dist/update-acceptance'
 if directory.exists():shutil.rmtree(directory)
@@ -32,12 +36,12 @@ def make_bundle(path,text,sequence):
  source=directory/(text+'.c')
  source.write_text('#include <stdio.h>\nint main(){FILE*f=fopen('+json.dumps(str(marker))+',"w");if(f){fputs('+json.dumps(text)+',f);fclose(f);}return 0;}\n')
  subprocess.run(['/usr/bin/clang',str(source),'-o',str(path/'Contents/MacOS/Probe')],check=True,env={**os.environ,'DEVELOPER_DIR':'/Library/Developer/CommandLineTools'})
- (path/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleExecutable='Probe',CFBundleIdentifier='dev.captionflow.update-acceptance',CFBundleName='CaptionFlow Test',CFBundlePackageType='APPL',CFBundleShortVersionString='0.4.6' if sequence==10 else '0.4.7',CFBundleVersion=str(sequence))))
- (path/'Contents/Resources/worker/release.json').write_text(json.dumps(dict(version='0.4.6' if sequence==10 else '0.4.7',sequence=sequence)))
+ (path/'Contents/Info.plist').write_bytes(plistlib.dumps(dict(CFBundleExecutable='Probe',CFBundleIdentifier='dev.captionflow.update-acceptance',CFBundleName='CaptionFlow Test',CFBundlePackageType='APPL',CFBundleShortVersionString=OLD_VERSION if sequence==OLD_SEQUENCE else NEW_VERSION,CFBundleVersion=str(sequence))))
+ (path/'Contents/Resources/worker/release.json').write_text(json.dumps(dict(version=OLD_VERSION if sequence==OLD_SEQUENCE else NEW_VERSION,sequence=sequence)))
  subprocess.run([sys.executable,'scripts/sign-app.py',str(path)],check=True,stdout=subprocess.DEVNULL)
 
-make_bundle(app,'old',10)
-replacement=stage/app.name;make_bundle(replacement,'new',11)
+make_bundle(app,'old',OLD_SEQUENCE)
+replacement=stage/app.name;make_bundle(replacement,'new',NEW_SEQUENCE)
 subprocess.run([sys.executable,'scripts/package-update.py','--root',str(app),'--platform','macos-aarch64','--output',str(directory/'old-payload')],check=True,stdout=subprocess.DEVNULL)
 subprocess.run([sys.executable,'scripts/package-update.py','--root',str(replacement),'--platform','macos-aarch64','--output',str(directory/'payload')],check=True,stdout=subprocess.DEVNULL)
 old=json.loads(base64.b64decode(json.loads((directory/'old-payload/gpui-macos-aarch64.json').read_text())['payload']))
@@ -55,7 +59,7 @@ for _ in range(50):
  time.sleep(.1)
 assert marker.read_text()=='new','Replacement did not relaunch'
 assert (stage/'previous/Contents/MacOS/Probe').exists(),'Previous installation not preserved'
-assert json.loads((app/'Contents/Resources/worker/release.json').read_text())['sequence']==11
+assert json.loads((app/'Contents/Resources/worker/release.json').read_text())['sequence']==NEW_SEQUENCE
 print('Signed component update: verified, installed, relaunched; previous install retained')
 
 # A tampered stage must leave the existing installation intact.
@@ -65,5 +69,5 @@ shutil.copy2(stage/'manifest.json',bad/'manifest.json')
 (bad/app.name/'Contents/Resources/worker/release.json').write_text('tampered')
 subprocess.run([str(helper),'--apply-update',str(bad),str(app),'99999999'],check=True,timeout=20)
 assert (bad/'update-error.txt').exists(),'Tampered update was not rejected'
-assert json.loads((app/'Contents/Resources/worker/release.json').read_text())['sequence']==11
+assert json.loads((app/'Contents/Resources/worker/release.json').read_text())['sequence']==NEW_SEQUENCE
 print('Tampered component rejected; installed app remained intact')

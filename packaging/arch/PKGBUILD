@@ -21,7 +21,7 @@ conflicts=('captionflow')
 # Preserve the tested upstream ELF files. Debug symbols were disabled upstream.
 options=('!strip' '!debug')
 source=("CaptionFlow-${pkgver}-linux-x86_64.tar.gz::${url}/releases/download/v${pkgver}/CaptionFlow-Linux-x86_64.tar.gz")
-sha256sums=('69ea322ee8eb57abd0e104cc7a8883fef5f15a5a80c4d619f399cd30bf5c3f82')
+sha256sums=('a82912ab5e5978d387f31f3a44ff762a3b0837d9765e1c6e983b07f634a1341c')
 
 check() {
   # Check the upstream identity without executing the app during packaging.

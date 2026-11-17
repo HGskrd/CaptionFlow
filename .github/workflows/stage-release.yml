@@ -1,0 +1,97 @@
+name: Stage verified release assets
+on:
+  workflow_dispatch:
+    inputs:
+      windows_run:
+        required: true
+        type: string
+      linux_run:
+        required: true
+        type: string
+      arch_run:
+        required: true
+        type: string
+permissions:
+  contents: write
+  actions: read
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      WINDOWS_RUN: ${{ inputs.windows_run }}
+      LINUX_RUN: ${{ inputs.linux_run }}
+      ARCH_RUN: ${{ inputs.arch_run }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Verify successful runs and identical platform inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          for platform in windows linux arch; do
+            case "$platform" in
+              windows) run="$WINDOWS_RUN"; paths=(gpui portable Sources native scripts/build-windows.py scripts/build-audio.py packaging/windows) ;;
+              linux) run="$LINUX_RUN"; paths=(gpui portable Sources native scripts/build-linux.py scripts/build-audio.py scripts/setup-linux.py) ;;
+              arch) run="$ARCH_RUN"; paths=(packaging/arch) ;;
+            esac
+            [[ "$run" =~ ^[0-9]+$ ]]
+            gh run view "$run" --json status,conclusion,headSha > /tmp/source-run.json
+            sha=$(python3 -c 'import json; d=json.load(open("/tmp/source-run.json")); assert d["status"]=="completed" and d["conclusion"]=="success",d; print(d["headSha"])')
+            git fetch origin "$sha" --depth=1
+            git diff --exit-code "$sha" HEAD -- "${paths[@]}"
+          done
+          version=$(python3 -c 'import json; print(json.load(open("Sources/CaptionFlow/Resources/worker/release.json"))["version"])')
+          echo "RELEASE_VERSION=$version" >> "$GITHUB_ENV"
+          gh release view "v$version" --json isDraft > /tmp/release-draft.json
+          python3 -c 'import json; assert json.load(open("/tmp/release-draft.json"))["isDraft"], "Refusing to change a public release"'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: CaptionFlow-Windows-verified
+          run-id: ${{ inputs.windows_run }}
+          github-token: ${{ github.token }}
+          path: dist/stage-release
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: CaptionFlow-Linux-verified
+          run-id: ${{ inputs.linux_run }}
+          github-token: ${{ github.token }}
+          path: dist/stage-release
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: CaptionFlow-Arch-pacman-verified
+          run-id: ${{ inputs.arch_run }}
+          github-token: ${{ github.token }}
+          path: dist/stage-release
+      - name: Validate complete installer set and upload to draft
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "v$RELEASE_VERSION" --pattern '*macOS*.dmg' --dir dist/stage-release
+          python3 scripts/publish-release.py dist/stage-release --notes "docs/releases/v$RELEASE_VERSION.md"
+          gh release upload "v$RELEASE_VERSION" --clobber \
+            dist/stage-release/CaptionFlow-Setup.exe \
+            dist/stage-release/CaptionFlow-Linux-x86_64.tar.gz \
+            dist/stage-release/captionflow-bin-*.pkg.tar.zst \
+            dist/stage-release/PKGBUILD dist/stage-release/SHA256SUMS.txt
+          gh release view "v$RELEASE_VERSION" --json assets > dist/stage-release/uploaded-assets.json
+          python3 - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('dist/stage-release')
+          assets={a['name']:a for a in json.loads((root/'uploaded-assets.json').read_text())['assets']}
+          expected={line.split(None,1)[1]:line.split()[0] for line in (root/'SHA256SUMS.txt').read_text().splitlines()}
+          expected['SHA256SUMS.txt']=hashlib.file_digest((root/'SHA256SUMS.txt').open('rb'),'sha256').hexdigest()
+          assert set(assets)==set(expected),(assets.keys(),expected.keys())
+          for name,digest in expected.items():
+              assert assets[name]['state']=='uploaded' and assets[name]['digest']=='sha256:'+digest,name
+          print('Complete draft asset set verified; publication remains a separate action.')
+          PY
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Release-upload-verification
+          path: |
+            dist/stage-release/SHA256SUMS.txt
+            dist/stage-release/uploaded-assets.json

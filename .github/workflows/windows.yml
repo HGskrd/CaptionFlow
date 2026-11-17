@@ -109,12 +109,12 @@ jobs:
       - name: Build installer
         run: |
           VERSION=$(python -c 'import json; print(json.load(open("Sources/CaptionFlow/Resources/worker/release.json"))["version"])')
-          makensis -DVERSION="$VERSION" -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup.exe" packaging/windows.nsi
+          makensis -DVERSION="$VERSION" -DPAYLOAD="$PWD/dist/windows-staging/CaptionFlow" -DOUTPUT="$PWD/dist/CaptionFlow-Setup-All-in-One.exe" packaging/windows.nsi
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: CaptionFlow-Windows
           path: |
-            dist/CaptionFlow-Setup.exe
+            dist/CaptionFlow-Setup-All-in-One.exe
             dist/CaptionFlow-Windows-x64.zip
   test:
     if: always() && inputs.diagnose_run == '' && (inputs.package_run != '' || needs.build.result == 'success')
@@ -147,6 +147,32 @@ jobs:
           path: dist
           run-id: ${{ inputs.package_run }}
           github-token: ${{ github.token }}
+      - name: Upgrade legacy full-installer artifact name
+        shell: pwsh
+        run: |
+          if (-not (Test-Path dist/CaptionFlow-Setup-All-in-One.exe)) {
+            if ((Get-Item dist/CaptionFlow-Setup.exe).Length -lt 50MB) { throw 'Expected a complete installer' }
+            Move-Item dist/CaptionFlow-Setup.exe dist/CaptionFlow-Setup-All-in-One.exe
+          }
+      - uses: ./.github/actions/sign-windows
+        with:
+          files: ${{ github.workspace }}\dist\CaptionFlow-Setup-All-in-One.exe
+          enabled: ${{ vars.WINDOWS_SIGNING_ENABLED }}
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
+          account: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
+          profile: ${{ vars.WINDOWS_SIGNING_PROFILE }}
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Build online installer from the final complete-installer bytes
+        shell: pwsh
+        run: |
+          if (-not (Test-Path 'C:\Program Files (x86)\NSIS\makensis.exe')) { choco install nsis --yes --no-progress }
+          python scripts/build-windows-installers.py --all-in-one dist/CaptionFlow-Setup-All-in-One.exe --output dist --test-url http://127.0.0.1:8847/CaptionFlow-Setup-All-in-One.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Online installer build failed' }
       - uses: ./.github/actions/sign-windows
         with:
           files: ${{ github.workspace }}\dist\CaptionFlow-Setup.exe
@@ -157,46 +183,25 @@ jobs:
           endpoint: ${{ vars.WINDOWS_SIGNING_ENDPOINT }}
           account: ${{ vars.WINDOWS_SIGNING_ACCOUNT }}
           profile: ${{ vars.WINDOWS_SIGNING_PROFILE }}
-      - name: Install and launch
+      - name: Install and verify both download variants
         shell: pwsh
-        run: |
-          $process = Start-Process -FilePath "$PWD\dist\CaptionFlow-Setup.exe" -ArgumentList '/S' -Wait -PassThru
-          if ($process.ExitCode -ne 0) { throw "Installer failed: $($process.ExitCode)" }
-          $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
-          & "$install\python\python.exe" "$install\portable\launch.py" --smoke-test --data "$env:TEMP\CaptionFlow-smoke"
-          if ($LASTEXITCODE -ne 0) { Get-Content "$env:TEMP\CaptionFlow-smoke\launcher.log"; throw 'Launch failed' }
-          $env:CAPTIONFLOW_SMOKE_EVIDENCE="$PWD\dist\gpui-smoke.json"
-          $env:RUST_BACKTRACE='1'
-          $gpui = Start-Process -FilePath "$install\CaptionFlowGPUI.exe" -ArgumentList '--smoke-test' -PassThru -RedirectStandardOutput "$PWD\dist\gpui-stdout.log" -RedirectStandardError "$PWD\dist\gpui-stderr.log"
-          if (-not $gpui.WaitForExit(60000)) { $gpui.Kill(); throw 'GPUI launch timed out' }
-          if ($gpui.ExitCode -ne 0) { Get-Content dist\gpui-stderr.log; throw "GPUI launch failed: $($gpui.ExitCode)" }
-          $smoke=Get-Content dist\gpui-smoke.json | ConvertFrom-Json
-          if (-not $smoke.preview -or -not $smoke.shutdown_received -or $smoke.original_characters -lt 1) { throw 'GPUI backend did not preview and shut down' }
-          Remove-Item Env:CAPTIONFLOW_SMOKE_EVIDENCE
-          Copy-Item "$install\portable\caption_audio.dll" portable\caption_audio.dll
-          & "$install\python\python.exe" -m unittest discover -s tests_portable -v
-          if ($LASTEXITCODE -ne 0) { throw 'Tests failed' }
+        run: ./scripts/test-windows-installers.ps1 -Directory dist -OnlineInstaller CaptionFlow-Setup-Loopback-Test.exe
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: CaptionFlow-Windows-verified
           path: |
             dist/CaptionFlow-Setup.exe
+            dist/CaptionFlow-Setup-All-in-One.exe
             dist/CaptionFlow-Windows-x64.zip
-      - name: Phonon offline inference and live replay
-        shell: pwsh
-        run: |
-          $install = "$env:LOCALAPPDATA\Programs\CaptionFlow"
-          & "$install\python\python.exe" scripts/test_small_models.py --cache "$env:TEMP\CaptionFlow-models" --backend cpu --download --output dist/phonon-windows.json
-          if ($LASTEXITCODE -ne 0) { throw 'Real-model test failed' }
+            dist/windows-installers.json
+            dist/installer-test-report.json
       - uses: actions/upload-artifact@v7.0.2
         if: always()
         with:
           name: Windows-model-evidence
           path: |
-            dist/phonon-windows.json
-            dist/gpui-smoke.json
-            dist/gpui-stdout.log
-            dist/gpui-stderr.log
+            dist/phonon-offline.json
+            dist/installer-test-report.json
   mac:
     if: inputs.diagnose_run == '' && inputs.package_run == ''
     runs-on: macos-15

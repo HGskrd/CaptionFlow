@@ -33,7 +33,7 @@ jobs:
           set -euo pipefail
           for platform in windows linux arch; do
             case "$platform" in
-              windows) run="$WINDOWS_RUN"; paths=(gpui portable Sources native scripts/build-windows.py scripts/build-audio.py packaging/assets packaging/windows.nsi docs/fixtures) ;;
+              windows) run="$WINDOWS_RUN"; paths=(gpui portable Sources native scripts/build-windows.py scripts/build-windows-installers.py scripts/build-audio.py packaging/assets packaging/windows.nsi packaging/windows-online.nsi packaging/windows docs/fixtures) ;;
               linux) run="$LINUX_RUN"; paths=(gpui portable Sources native scripts/build-linux.py scripts/build-audio.py scripts/setup-linux.py docs/fixtures) ;;
               arch) run="$ARCH_RUN"; paths=(packaging/arch) ;;
             esac
@@ -73,6 +73,7 @@ jobs:
           python3 scripts/publish-release.py dist/stage-release --notes "docs/releases/v$RELEASE_VERSION.md"
           gh release upload "v$RELEASE_VERSION" --clobber \
             dist/stage-release/CaptionFlow-Setup.exe \
+            dist/stage-release/CaptionFlow-Setup-All-in-One.exe \
             dist/stage-release/CaptionFlow-Linux-x86_64.tar.gz \
             dist/stage-release/captionflow-bin-*.pkg.tar.zst \
             dist/stage-release/PKGBUILD dist/stage-release/SHA256SUMS.txt

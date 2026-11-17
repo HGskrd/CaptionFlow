@@ -15,7 +15,7 @@ REPO='HGskrd/CaptionFlow'
 
 
 def validate(directory, version, notes):
-    names=['CaptionFlow-Setup.exe','CaptionFlow-macOS-arm64.dmg','CaptionFlow-macOS-x86_64.dmg','CaptionFlow-Linux-x86_64.tar.gz']
+    names=['CaptionFlow-Setup.exe','CaptionFlow-Setup-All-in-One.exe','CaptionFlow-macOS-arm64.dmg','CaptionFlow-macOS-x86_64.dmg','CaptionFlow-Linux-x86_64.tar.gz']
     arch_packages = list(directory.glob(f'captionflow-bin-{version}-*-x86_64.pkg.tar.zst'))
     if len(arch_packages) != 1:
         raise ValueError('A release requires exactly one matching Arch pacman package')

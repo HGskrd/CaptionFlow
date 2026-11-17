@@ -2,9 +2,9 @@
 
 Private live captions and translation, with a GPUI interface.
 
-**[Windows x64](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Setup.exe)** · **[Mac Apple Silicon](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-arm64.dmg)** · **[Mac Intel](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-x86_64.dmg)** · **[Linux x86_64 preview](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Linux-x86_64.tar.gz)**
+**[Windows normal](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Setup.exe)** · **[Windows all-in-one](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Setup-All-in-One.exe)** · **[Mac Apple Silicon](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-arm64.dmg)** · **[Mac Intel](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-macOS-x86_64.dmg)** · **[Linux x86_64 preview](https://github.com/HGskrd/CaptionFlow/releases/latest/download/CaptionFlow-Linux-x86_64.tar.gz)**
 
-Windows: run the installer. Mac: open the DMG and drag CaptionFlow to Applications. Python and inference runtimes are included. Apple Silicon requires macOS 26+; Intel requires macOS 14+. Models download during setup when online participation is enabled.
+Windows: choose the small online installer or the all-in-one with all code runtimes bundled. Both install the same app; model weights are separate. See [Windows downloads](docs/windows-downloads.md). Mac: open the DMG and drag CaptionFlow to Applications. Python and inference runtimes are included. Apple Silicon requires macOS 26+; Intel requires macOS 14+. Models download during setup when online participation is enabled.
 
 Linux (Arch/EndeavourOS): download the **[PKGBUILD](https://github.com/HGskrd/CaptionFlow/releases/latest/download/PKGBUILD)** and run `makepkg -si`, or install the prebuilt `.pkg.tar.zst` using `pacman -U`. Launch `captionflow`. See [Linux installation](docs/linux.md). Linux updates install manually; physical audio/GPU validation remains pending.
 

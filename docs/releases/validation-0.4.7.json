@@ -70,12 +70,37 @@
   "ci": {
     "windows": "https://github.com/HGskrd/CaptionFlow/actions/runs/44078432167",
     "linux": "https://github.com/HGskrd/CaptionFlow/actions/runs/44065838444",
-    "arch": "https://github.com/HGskrd/CaptionFlow/actions/runs/44078190225"
+    "arch": "https://github.com/HGskrd/CaptionFlow/actions/runs/44078190225",
+    "windows_downloads": "https://github.com/HGskrd/CaptionFlow/actions/runs/44085249716"
   },
   "scope": "Synthetic offline speech fixtures; no new physical capture or broad accuracy certification.",
   "component_update_deployment": {
     "status": "SSH connection timed out",
     "production_feed_version": "0.4.6",
     "prepared_mac_manifests": true
+  },
+  "windows_downloads": {
+    "normal_bytes": 223943,
+    "normal_sha256": "6f1ccc259aaf553c00b26d0f37edde2a40ecb40e8700981b311e8d97b1cf52d6",
+    "all_in_one_bytes": 291180098,
+    "all_in_one_sha256": "da19184a3c2c7f2b796c7f3854b85955ccc205bcbd747d5dd1d2f2a40b7cb0e4",
+    "acceptance": {
+      "portable_tests_verified": true,
+      "same_installed_files": true,
+      "all_in_one_preview": true,
+      "user_data_preserved": true,
+      "normal_preview": true,
+      "tampered_download_rejected": true,
+      "installed_file_count": 24713,
+      "all_in_one_code_verified": true,
+      "uninstallation_verified": true
+    },
+    "portable_tests": 57,
+    "portable_tests_skipped": 1,
+    "offline_phonon_inference_verified": true,
+    "model_weights_bundled": false,
+    "public_normal_download_verified": true,
+    "public_all_in_one_install_verified_by_windows_ci": true,
+    "same_installed_footprint": true
   }
 }

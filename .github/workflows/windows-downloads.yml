@@ -1,0 +1,96 @@
+name: Windows download variants
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/windows-installers]
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install installer compiler
+        run: |
+          for source in /etc/apt/apt-mirrors*.txt /etc/apt/sources.list.d/ubuntu.sources; do
+            if [ -f "$source" ]; then sudo sed -i -E 's#https?://(azure.archive|archive|security)\.ubuntu\.com/ubuntu/?#https://mirrors.edge.kernel.org/ubuntu/#g' "$source"; fi
+          done
+          sudo apt-get update -qq -o Acquire::Retries=1 -o Acquire::https::Timeout=30
+          sudo apt-get install -y --no-install-recommends nsis
+      - name: Reuse the verified complete installer and build online installer
+        run: |
+          mkdir -p dist/input
+          python3 - <<'PY'
+          import json,subprocess
+          from pathlib import Path
+          version=json.loads(Path('Sources/CaptionFlow/Resources/worker/release.json').read_text())['version']
+          release=json.loads(subprocess.check_output(['gh','release','view','v'+version,'--json','assets'],text=True))
+          assets={a['name']:a for a in release['assets']}
+          subprocess.run(['git','fetch','origin','tag','v'+version,'--depth=1'],check=True)
+          subprocess.run(['git','diff','--exit-code','v'+version,'HEAD','--','gpui','portable','Sources','native','scripts/build-windows.py','scripts/build-audio.py','packaging/windows.nsi','docs/fixtures'],check=True)
+          name='CaptionFlow-Setup-All-in-One.exe' if 'CaptionFlow-Setup-All-in-One.exe' in assets else 'CaptionFlow-Setup.exe'
+          source=assets[name]
+          assert source['size'] > 50*1024*1024, 'Expected the full existing installer, not a bootstrapper'
+          Path('dist/source-installer.json').write_text(json.dumps(source))
+          subprocess.run(['gh','release','download','v'+version,'--pattern',name,'--dir','dist/input'],check=True)
+          import hashlib
+          path=Path('dist/input')/name
+          assert 'sha256:'+hashlib.file_digest(path.open('rb'),'sha256').hexdigest()==source['digest']
+          subprocess.run(['python3','scripts/build-windows-installers.py','--all-in-one',str(path),'--output','dist/installers'],check=True)
+          manifest_path=Path('dist/installers/windows-installers.json')
+          manifest=json.loads(manifest_path.read_text())
+          manifest['normal']['replaces_digest']=assets['CaptionFlow-Setup.exe']['digest']
+          manifest_path.write_text(json.dumps(manifest,indent=2)+'\n')
+          # The complete file is unchanged from the already verified public release.
+          if 'CaptionFlow-Setup-All-in-One.exe' not in assets:
+              subprocess.run(['gh','release','upload','v'+version,'dist/installers/CaptionFlow-Setup-All-in-One.exe'],check=True)
+          PY
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Windows-installer-variants
+          path: |
+            dist/installers/CaptionFlow-Setup.exe
+            dist/installers/CaptionFlow-Setup-All-in-One.exe
+            dist/installers/windows-installers.json
+  test:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: '3.14'
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: Windows-installer-variants
+          path: dist/installers
+      - name: Test both installation paths, code availability and uninstallation
+        shell: pwsh
+        run: ./scripts/test-windows-installers.ps1 -Directory dist/installers
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: Windows-installer-variants-verified
+          path: |
+            dist/installers/CaptionFlow-Setup.exe
+            dist/installers/windows-installers.json
+            dist/installers/installer-test-report.json
+  publish:
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          name: Windows-installer-variants-verified
+          path: dist/installers
+      - name: Publish the tested normal installer and refresh release checksums
+        run: python3 scripts/publish-windows-installers.py dist/installers

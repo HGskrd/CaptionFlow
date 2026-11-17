@@ -1,6 +1,6 @@
 # Releases
 
-Use one `vX.Y.Z` release containing the platform installers, Linux portable archive, Arch pacman package, `PKGBUILD` and `SHA256SUMS.txt`. Do not publish platform-only releases or relabel old binaries. Keep notes under 100 words, covering changes and installation requirements; store test details in this repository.
+Use one `vX.Y.Z` release containing both Windows installers, the Mac installers, Linux portable archive, Arch pacman package, `PKGBUILD` and `SHA256SUMS.txt`. Do not publish platform-only releases or relabel old binaries. Keep notes under 100 words, covering changes and installation requirements; store test details in this repository.
 
 `Sources/CaptionFlow/Resources/worker/release.json` is the version and increasing update sequence shared by the clients and packaging. The Rust package version must match. GPUI is the release frontend on all platforms. `script/build_and_run.sh` builds and launches a development Mac app; `script/test_native.sh` runs the native suite.
 
@@ -77,3 +77,11 @@ with the successful Windows, Linux and Arch run IDs. It verifies platform input
 identity against the candidate, downloads artifacts inside GitHub, runs the
 complete preflight and verifies uploaded hashes. It only modifies a draft and
 never makes a release public; publish separately after inspecting its result.
+
+## Two Windows downloads
+
+Publish `CaptionFlow-Setup.exe` (small online installer) and
+`CaptionFlow-Setup-All-in-One.exe` (complete bundled code). The app and model
+choices are identical. All-in-one is signed before its SHA-256 is embedded in
+the online installer; sign the online installer last. The internal loopback
+fixture must never be published. See [Windows download packaging](windows-downloads.md).

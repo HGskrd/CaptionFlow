@@ -1,16 +1,20 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 mod canvas;
 mod captions;
+mod controls;
 mod engine;
 mod updater;
 use engine::Engine;
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, Div, ExternalPaths, FocusHandle, FontWeight,
-    Hsla, KeyBinding, Menu, MenuItem, MouseButton, SharedString, TitlebarOptions, Window,
+    App, Application, Bounds, ClipboardItem, Context, Div, FocusHandle, FontWeight, Hsla,
+    KeyBinding, Menu, MenuItem, MouseButton, SharedString, TitlebarOptions, Window,
     WindowAppearance, WindowBounds, WindowOptions, actions, div, point, prelude::*, px, rgb, size,
 };
 use serde_json::{Value, json};
-use std::{rc::Rc, time::Duration};
+use std::{
+    rc::Rc,
+    time::{Duration, Instant},
+};
 actions!(
     captionflow,
     [
@@ -24,7 +28,11 @@ actions!(
         Privacy,
         Settings,
         Escape,
-        BackToLive
+        BackToLive,
+        ShowStyle,
+        ShowLanguages,
+        ShowModels,
+        CheckForUpdates
     ]
 );
 #[derive(Clone, Copy)]
@@ -35,15 +43,40 @@ struct Palette {
     muted: Hsla,
     line: Hsla,
     button: Hsla,
+    card: Hsla,
+    control: Hsla,
+    control_on: Hsla,
+    menu: Hsla,
+    menu_line: Hsla,
+    accent: Hsla,
 }
 impl Palette {
     fn new(dark: bool) -> Self {
         let values = if dark {
-            [0x25272b, 0x202226, 0xf2f3f5, 0xa9afb9, 0x3b3e44, 0x34373e]
+            [
+                0x25272b, 0x202226, 0xf2f3f5, 0xa9afb9, 0x3b3e44, 0x34373e, 0x2b2e33, 0x1b1d21,
+                0x4a4e56, 0x2c2f35, 0x43474e, 0x2f6fe8,
+            ]
         } else {
-            [0xf5f6f8, 0xebeef2, 0x202631, 0x646e7c, 0xd9dde4, 0xffffff]
+            [
+                0xf5f6f8, 0xebeef2, 0x202631, 0x646e7c, 0xd9dde4, 0xffffff, 0xffffff, 0xe3e6eb,
+                0xffffff, 0xfbfbfc, 0xd3d6dc, 0x2f6fe8,
+            ]
         };
-        let [background, panel, text, muted, line, button] = values.map(|v| rgb(v).into());
+        let [
+            background,
+            panel,
+            text,
+            muted,
+            line,
+            button,
+            card,
+            control,
+            control_on,
+            menu,
+            menu_line,
+            accent,
+        ] = values.map(|v| rgb(v).into());
         Self {
             background,
             panel,
@@ -51,6 +84,12 @@ impl Palette {
             muted,
             line,
             button,
+            card,
+            control,
+            control_on,
+            menu,
+            menu_line,
+            accent,
         }
     }
 }
@@ -77,6 +116,7 @@ struct CaptionFlow {
     was_fullscreen: bool,
     tab: usize,
     picker: Option<String>,
+    picker_closed: Option<(String, Instant)>,
     quitting: bool,
     copied: bool,
     presentation: canvas::PresentationState,
@@ -98,6 +138,7 @@ impl CaptionFlow {
             was_fullscreen: false,
             tab: 0,
             picker: None,
+            picker_closed: None,
             quitting: false,
             copied: false,
             presentation: Default::default(),
@@ -202,6 +243,16 @@ impl CaptionFlow {
         self.picker = None;
         cx.notify();
     }
+    fn show_tab(&mut self, tab: usize, window: &Window, cx: &mut Context<Self>) {
+        self.tab = tab;
+        self.picker = None;
+        if window.is_fullscreen() {
+            self.fullscreen_inspector = true;
+        } else {
+            self.inspector = true;
+        }
+        cx.notify();
+    }
     fn copy(&mut self, cx: &mut Context<Self>) {
         let p = &self.state["preferences"];
         let mut lanes = Vec::new();
@@ -258,293 +309,6 @@ impl CaptionFlow {
             })
             .child(label.into())
     }
-    fn field(&self, field: &Value, p: Palette, cx: &mut Context<Self>) -> gpui::AnyElement {
-        let kind = field["kind"].as_str().unwrap_or("");
-        let key = field["key"].as_str().unwrap_or("").to_owned();
-        let label = field["label"].as_str().unwrap_or("").to_owned();
-        let value = field["value"].clone();
-        let disabled = field["disabled"].as_bool().unwrap_or(false);
-        let mut row = div()
-            .id(SharedString::from(format!("field-{kind}-{key}")))
-            .flex()
-            .flex_col()
-            .gap_2()
-            .py_2();
-        match kind {
-            "select" => {
-                let options = field["options"].as_array().cloned().unwrap_or_default();
-                let selected = options
-                    .iter()
-                    .find(|v| v["value"] == value)
-                    .map(|v| string(&v["label"]))
-                    .unwrap_or_else(|| string(&value));
-                row = row
-                    .child(div().text_color(p.muted).text_size(px(11.)).child(label))
-                    .child(
-                        Self::button(
-                            SharedString::from(format!("select-{key}")),
-                            format!("{selected}  ▾"),
-                            false,
-                            disabled,
-                            p,
-                        )
-                        .on_click(cx.listener({
-                            let key = key.clone();
-                            move |this, _, _, cx| {
-                                if !disabled {
-                                    this.picker = if this.picker.as_ref() == Some(&key) {
-                                        None
-                                    } else {
-                                        Some(key.clone())
-                                    };
-                                    cx.notify();
-                                }
-                            }
-                        })),
-                    );
-                if self.picker.as_ref() == Some(&key) && !disabled {
-                    row = row.child(
-                        div()
-                            .id(SharedString::from(format!("options-{key}")))
-                            .max_h(px(240.))
-                            .overflow_y_scroll()
-                            .rounded_md()
-                            .bg(p.button)
-                            .children(options.into_iter().enumerate().map(|(i, option)| {
-                                let chosen = option["value"].clone();
-                                let key = key.clone();
-                                div()
-                                    .id(("option", i))
-                                    .px_3()
-                                    .py_2()
-                                    .cursor_pointer()
-                                    .hover(move |s| s.bg(p.line))
-                                    .child(format!(
-                                        "{}{}",
-                                        if chosen == value { "✓  " } else { "" },
-                                        string(&option["label"])
-                                    ))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.command(
-                                            json!({"type":"set","key":key,"value":chosen}),
-                                            cx,
-                                        )
-                                    }))
-                            })),
-                    );
-                }
-            }
-            "toggle" | "target" => {
-                let checked = value.as_bool().unwrap_or(false);
-                let target = kind == "target";
-                row = row.child(
-                    Self::button(
-                        SharedString::from(format!("toggle-{key}")),
-                        format!("{}  {label}", if checked { "☑" } else { "☐" }),
-                        false,
-                        disabled,
-                        p,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if disabled {
-                            return;
-                        }
-                        let (key, value) = if target {
-                            let mut targets = this.state["preferences"]["targets"]
-                                .as_array()
-                                .cloned()
-                                .unwrap_or_default();
-                            if checked {
-                                targets.retain(|v| v.as_str() != Some(key.as_str()));
-                            } else {
-                                targets.push(json!(key));
-                            }
-                            ("targets", json!(targets))
-                        } else {
-                            (key.as_str(), json!(!checked))
-                        };
-                        this.command(json!({"type":"set","key":key,"value":value}), cx);
-                    })),
-                );
-            }
-            "number" => {
-                let current = value.as_f64().unwrap_or(0.);
-                let step = field["step"].as_f64().unwrap_or(1.);
-                let minimum = field["min"].as_f64().unwrap_or(0.);
-                let maximum = field["max"].as_f64().unwrap_or(120.);
-                let text = if key == "silenceThreshold" {
-                    format!("{current:.3}")
-                } else if step.fract() != 0. {
-                    format!("{current:.1}")
-                } else {
-                    format!("{current:.0}")
-                };
-                row = row.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap_2()
-                        .child(label)
-                        .child(div().flex().items_center().gap_2().children(
-                            [-1., 1.].into_iter().enumerate().map(|(i, direction)| {
-                                let key = key.clone();
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_2()
-                                    .when(i == 1, |el| el.child(text.clone()))
-                                    .child(
-                                        Self::button(
-                                            SharedString::from(format!("step-{key}-{i}")),
-                                            if i == 0 { "−" } else { "+" },
-                                            false,
-                                            disabled,
-                                            p,
-                                        )
-                                        .on_click(
-                                            cx.listener(move |this, _, _, cx| {
-                                                if disabled {
-                                                    return;
-                                                }
-                                                let number = ((current + direction * step)
-                                                    .clamp(minimum, maximum)
-                                                    * 1000.)
-                                                    .round()
-                                                    / 1000.;
-                                                let value = if step.fract() == 0. {
-                                                    json!(number as i64)
-                                                } else {
-                                                    json!(number)
-                                                };
-                                                this.command(
-                                                    json!({"type":"set","key":key,"value":value}),
-                                                    cx,
-                                                );
-                                            }),
-                                        ),
-                                    )
-                            }),
-                        )),
-                );
-            }
-            "color" => {
-                row = row.child(
-                    Self::button(
-                        SharedString::from(format!("color-{key}")),
-                        label,
-                        false,
-                        false,
-                        p,
-                    )
-                    .child(
-                        div()
-                            .size(px(14.))
-                            .rounded_sm()
-                            .bg(color(&self.state["preferences"][&key])),
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.command(json!({"type":"color","key":key}), cx)
-                    })),
-                );
-            }
-            "presets" => {
-                row = row.child(
-                    div().flex().gap_2().children(
-                        ["Midnight", "Paper", "Cinema"]
-                            .into_iter()
-                            .enumerate()
-                            .map(|(i, name)| {
-                                Self::button(("preset", i), name, false, false, p).on_click(
-                                    cx.listener(move |this, _, _, cx| {
-                                        this.command(json!({"type":"preset","value":name}), cx)
-                                    }),
-                                )
-                            }),
-                    ),
-                );
-            }
-            "root" => {
-                row = row
-                    .child(div().text_size(px(12.)).child(label))
-                    .child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(p.muted)
-                            .overflow_hidden()
-                            .child(string(&value)),
-                    )
-                    .child(
-                        Self::button(
-                            SharedString::from(format!("remove-{key}")),
-                            "Remove folder",
-                            false,
-                            disabled,
-                            p,
-                        )
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            if !disabled {
-                                this.command(json!({"type":"removeRoot","path":key}), cx);
-                            }
-                        })),
-                    );
-            }
-            "action" | "edit" => {
-                let edit = kind == "edit";
-                row = row.child(
-                    Self::button(
-                        SharedString::from(format!("action-{key}")),
-                        label,
-                        false,
-                        disabled,
-                        p,
-                    )
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        if !disabled {
-                            this.command(
-                                if edit {
-                                    json!({"type":"edit","key":key})
-                                } else {
-                                    json!({"type":key})
-                                },
-                                cx,
-                            );
-                        }
-                    })),
-                );
-                if edit && value.as_str().is_some_and(|v| !v.is_empty()) {
-                    row = row.child(
-                        div()
-                            .text_size(px(10.))
-                            .text_color(p.muted)
-                            .child(string(&value)),
-                    );
-                }
-            }
-            _ => row = row.child(label),
-        }
-        row.into_any_element()
-    }
-    fn inspector(&self, p: Palette, cx: &mut Context<Self>) -> Div {
-        let sections = self.state["sections"][self.tab]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        div().w(px(340.)).h_full().flex_none().bg(p.panel).border_l_1().border_color(p.line).flex().flex_col()
-   .on_drop::<ExternalPaths>(cx.listener(|this,paths: &ExternalPaths,_,cx|this.command(json!({"type":"dropRoots","paths":paths.paths().iter().map(|p|p.to_string_lossy().to_string()).collect::<Vec<_>>()}),cx)))
-.child(div().p_4().flex().gap_1()
-.children(["Style","Languages","Models"].into_iter().enumerate().map(|(i,title)|div().id(("tab",i)).flex_1().text_center().py_1p5().rounded_md().cursor_pointer().bg(if self.tab==i{p.button}else{p.panel}).font_weight(if self.tab==i{FontWeight::SEMIBOLD}else{FontWeight::NORMAL})
-.child(title)
-.on_click(cx.listener(move|this,_,_,cx|{this.tab=i;this.picker=None;cx.notify();})))))
-.child(div().id(("inspector-scroll",self.tab)).flex_1().min_h_0().overflow_y_scroll().px_5().pb_4()
-.children(sections.iter().map(|section|div().flex().flex_col().pt_4().pb_4().border_b_1().border_color(p.line)
-.child(div().mb_2().font_weight(FontWeight::SEMIBOLD)
-.child(string(&section["title"])))
-.children(section["fields"].as_array().into_iter().flatten().map(|field|self.field(field,p,cx)))
-.when(section["note"].as_str().is_some_and(|v|!v.is_empty()),|el|el
-.child(div().pt_2().text_size(px(11.)).text_color(p.muted)
-.child(string(&section["note"])))))))
-    }
 }
 impl Render for CaptionFlow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -585,6 +349,10 @@ impl Render for CaptionFlow {
 .on_action(|_:&Fullscreen,window,_|window.toggle_fullscreen())
 .on_action(cx.listener(|this,_:&Close,_,cx|this.request_quit(cx)))
 .on_action(cx.listener(|this,_:&BackToLive,_,cx|this.back_to_live(None,cx)))
+.on_action(cx.listener(|this,_:&ShowStyle,window,cx|this.show_tab(0,window,cx)))
+.on_action(cx.listener(|this,_:&ShowLanguages,window,cx|this.show_tab(1,window,cx)))
+.on_action(cx.listener(|this,_:&ShowModels,window,cx|this.show_tab(2,window,cx)))
+.on_action(cx.listener(|this,_:&CheckForUpdates,_,cx|this.update_app(cx)))
 .on_action(cx.listener(|this,_:&Escape,window,cx|{if this.picker.take().is_some(){cx.notify();}else if window.is_fullscreen(){window.toggle_fullscreen();}}))
 .when(!fullscreen,|el|el
 .child(div().h(px(56.)).flex_none().flex().items_center().justify_between().pl(px(88.)).pr_4().border_b_1().border_color(p.line).on_mouse_down(MouseButton::Left,|_,window,_|window.start_window_move())
@@ -642,13 +410,17 @@ fn main() {
             KeyBinding::new("cmd-,", Settings, Some("CaptionFlow")),
             KeyBinding::new("escape", Escape, Some("CaptionFlow")),
             KeyBinding::new("cmd-down", BackToLive, Some("CaptionFlow")),
+            KeyBinding::new("cmd-1", ShowStyle, Some("CaptionFlow")),
+            KeyBinding::new("cmd-2", ShowLanguages, Some("CaptionFlow")),
+            KeyBinding::new("cmd-3", ShowModels, Some("CaptionFlow")),
         ]);
         cx.set_menus(vec![
             Menu {
                 name: "CaptionFlow".into(),
                 items: vec![
                     MenuItem::action("Settings…", Settings),
-                    MenuItem::action("Privacy / sharing…", Privacy),
+                    MenuItem::action("Privacy & Sharing…", Privacy),
+                    MenuItem::action("Check for Updates…", CheckForUpdates),
                     MenuItem::separator(),
                     MenuItem::action("Quit CaptionFlow", Quit),
                 ],
@@ -656,20 +428,27 @@ fn main() {
             Menu {
                 name: "Session".into(),
                 items: vec![
-                    MenuItem::action("Start / Stop Listening", Listen),
+                    MenuItem::action("Start or Stop Listening", Listen),
                     MenuItem::action("Preview Appearance", Preview),
                     MenuItem::separator(),
                     MenuItem::action("Copy Captions", CopyCaptions),
+                    MenuItem::action("Back to Live", BackToLive),
                 ],
             },
             Menu {
                 name: "View".into(),
                 items: vec![
-                    MenuItem::action("Toggle Inspector", Inspector),
-                    MenuItem::action("Enter / Exit Full Screen", Fullscreen),
-                    MenuItem::action("Back to Live", BackToLive),
-                    MenuItem::action("Close Window", Close),
+                    MenuItem::action("Style", ShowStyle),
+                    MenuItem::action("Languages", ShowLanguages),
+                    MenuItem::action("Models", ShowModels),
+                    MenuItem::separator(),
+                    MenuItem::action("Show or Hide Inspector", Inspector),
+                    MenuItem::action("Enter or Exit Full Screen", Fullscreen),
                 ],
+            },
+            Menu {
+                name: "Window".into(),
+                items: vec![MenuItem::action("Close Window", Close)],
             },
         ]);
         let executable = std::env::current_exe().expect("app executable path");

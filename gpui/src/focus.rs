@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 use std::time::{Duration, Instant};
 
 const REVEAL: Duration = Duration::from_millis(2500);
+pub(super) const TOOLBAR: f32 = 56.;
 const STYLE: usize = 0;
 const LANGUAGES: usize = 1;
 const MODELS: usize = 2;
@@ -40,8 +41,10 @@ fn note(text: impl Into<SharedString>, p: Palette) -> Div {
 }
 
 impl CaptionFlow {
+    /// Windowed: the toolbar is always shown. Full screen: nothing is shown
+    /// until the pointer moves, even while idle.
     pub(super) fn controls_visible(&self) -> bool {
-        !self.flag("active")
+        !self.fullscreen
             || self.pin_controls
             || self.menu.is_some()
             || self.settings_open
@@ -416,7 +419,7 @@ impl CaptionFlow {
                 menu_item(
                     "more-pin",
                     self.pin_controls,
-                    "Keep controls visible",
+                    "Keep controls in full screen",
                     shortcut("⌥⌘I"),
                     false,
                     p,
@@ -492,6 +495,7 @@ impl CaptionFlow {
         cx: &mut Context<Self>,
     ) -> Div {
         let open = self.menu.as_deref() == Some(name);
+        let below = !self.fullscreen;
         div()
             .relative()
             .child(
@@ -508,16 +512,18 @@ impl CaptionFlow {
                 el.child(
                     div()
                         .absolute()
-                        .top_0()
+                        .when(below, |el| el.top(relative(1.)))
+                        .when(!below, |el| el.top_0())
                         .when(right, |el| el.right_0())
                         .when(!right, |el| el.left_0())
                         .child(overlay(
-                            if right {
-                                Corner::BottomRight
-                            } else {
-                                Corner::BottomLeft
+                            match (below, right) {
+                                (true, true) => Corner::TopRight,
+                                (true, false) => Corner::TopLeft,
+                                (false, true) => Corner::BottomRight,
+                                (false, false) => Corner::BottomLeft,
                             },
-                            -10.,
+                            if below { 6. } else { -10. },
                             menu,
                         )),
                 )
@@ -563,27 +569,10 @@ impl CaptionFlow {
         };
         let transcript = preferences["captionPresentation"] == "Transcript";
         let red = rgb(0xe5484d);
-        div()
-            .id("control-bar")
-            .occlude()
+        let session = div()
             .flex()
             .items_center()
             .gap(px(4.))
-            .p(px(6.))
-            .rounded(px(16.))
-            .bg(p.menu)
-            .border_1()
-            .border_color(p.menu_line)
-            .shadow_lg()
-            .text_color(p.text)
-            .text_size(px(13.))
-            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
-                this.bar_hover = *hovered;
-                if !*hovered {
-                    this.controls_until = Some(Instant::now() + REVEAL);
-                }
-                cx.notify();
-            }))
             .child(
                 div()
                     .id("bar-listen")
@@ -621,8 +610,11 @@ impl CaptionFlow {
                     cx,
                 ),
             )
-            .child(self.bar_menu_anchor("translate", translate_label, false, p, cx))
-            .child(Self::bar_separator(p))
+            .child(self.bar_menu_anchor("translate", translate_label, false, p, cx));
+        let view = div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
             .child(
                 div()
                     .flex()
@@ -657,7 +649,53 @@ impl CaptionFlow {
             )
             .child(Self::bar_separator(p))
             .child(self.bar_menu_anchor("style", "Aa", true, p, cx))
-            .child(self.bar_menu_anchor("more", "•••", true, p, cx))
+            .child(self.bar_menu_anchor("more", "•••", true, p, cx));
+        if !self.fullscreen {
+            // Windowed: a normal toolbar beside the traffic lights, draggable
+            // from any empty space.
+            return div()
+                .id("toolbar")
+                .h(px(TOOLBAR))
+                .flex_none()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap_4()
+                .pl(px(88.))
+                .pr(px(10.))
+                .bg(p.background)
+                .border_b_1()
+                .border_color(p.line)
+                .text_color(p.text)
+                .text_size(px(13.))
+                .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
+                .child(session.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()))
+                .child(view.on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation()));
+        }
+        div()
+            .id("control-bar")
+            .occlude()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .p(px(6.))
+            .rounded(px(16.))
+            .bg(p.menu)
+            .border_1()
+            .border_color(p.menu_line)
+            .shadow_lg()
+            .text_color(p.text)
+            .text_size(px(13.))
+            .on_hover(cx.listener(|this, hovered: &bool, _, cx| {
+                this.bar_hover = *hovered;
+                if !*hovered {
+                    this.controls_until = Some(Instant::now() + REVEAL);
+                }
+                cx.notify();
+            }))
+            .child(session)
+            .child(Self::bar_separator(p))
+            .child(view)
     }
 
     /// Captions and Transcript are the two presentations of the same canvas.
@@ -810,7 +848,7 @@ impl CaptionFlow {
         Some(
             div()
                 .absolute()
-                .top(px(14.))
+                .top(px(if self.fullscreen { 14. } else { TOOLBAR + 12. }))
                 .left_0()
                 .right_0()
                 .flex()

@@ -7,9 +7,9 @@ mod focus;
 mod updater;
 use engine::Engine;
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, Div, FocusHandle, Hsla, KeyBinding, Menu,
-    MenuItem, MouseButton, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds,
-    WindowOptions, actions, div, point, prelude::*, px, rgb, size,
+    App, Application, Bounds, ClipboardItem, Context, CursorStyle, Div, FocusHandle, Hsla,
+    KeyBinding, Menu, MenuItem, SharedString, TitlebarOptions, Window, WindowAppearance,
+    WindowBounds, WindowOptions, actions, div, point, prelude::*, px, rgb, size,
 };
 use serde_json::{Value, json};
 use std::{
@@ -120,6 +120,7 @@ struct CaptionFlow {
     settings_open: bool,
     pin_controls: bool,
     bar_hover: bool,
+    fullscreen: bool,
     controls_until: Option<Instant>,
     controls_shown: bool,
     caption_presentation: HashMap<&'static str, Value>,
@@ -146,6 +147,7 @@ impl CaptionFlow {
             settings_open: false,
             pin_controls: false,
             bar_hover: false,
+            fullscreen: false,
             controls_until: None,
             controls_shown: true,
             caption_presentation: HashMap::new(),
@@ -311,17 +313,29 @@ impl Render for CaptionFlow {
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
-        let chrome = self.controls_visible();
-        self.controls_shown = chrome;
-        let canvas = self.render_canvas(window, chrome, cx);
+        let fullscreen = window.is_fullscreen();
+        if fullscreen != self.fullscreen {
+            self.fullscreen = fullscreen;
+            self.menu = None;
+            self.picker = None;
+            self.controls_until = Some(Instant::now() + Duration::from_millis(2500));
+        }
+        let controls = self.controls_visible();
+        self.controls_shown = controls;
+        let toolbar = if fullscreen { 0. } else { focus::TOOLBAR };
+        let canvas = self.render_canvas(window, controls, toolbar, cx);
         let toast = self.toast(p, cx);
         div()
             .key_context("CaptionFlow")
             .track_focus(&self.focus)
             .size_full()
             .relative()
+            .flex()
+            .flex_col()
             .overflow_hidden()
             .bg(p.background)
+            // Full screen at rest: hide the pointer too (it returns when moved).
+            .when(fullscreen && !controls, |el| el.cursor(CursorStyle::None))
             .text_color(p.text)
             .font_family(".SystemUIFont")
             .text_size(px(13.))
@@ -351,19 +365,10 @@ impl Render for CaptionFlow {
             .on_action(cx.listener(|this, _: &ShowModels, _, cx| this.open_settings(cx)))
             .on_action(cx.listener(|this, _: &CheckForUpdates, _, cx| this.update_app(cx)))
             .on_action(cx.listener(|this, _: &Escape, window, cx| this.handle_escape(window, cx)))
-            .child(canvas)
-            // The title bar is transparent; keep the window draggable from its top edge.
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .right_0()
-                    .h(px(44.))
-                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
-            )
+            .when(!fullscreen, |el| el.child(self.control_bar(p, cx)))
+            .child(div().flex_1().min_h_0().flex().child(canvas))
             .children(toast)
-            .when(chrome, |el| {
+            .when(fullscreen && controls, |el| {
                 el.child(
                     div()
                         .absolute()

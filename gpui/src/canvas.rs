@@ -97,6 +97,7 @@ impl CaptionFlow {
         &mut self,
         window: &Window,
         chrome: bool,
+        top_inset: f32,
         cx: &mut Context<Self>,
     ) -> Div {
         let preferences = self.state["preferences"].clone();
@@ -137,7 +138,7 @@ impl CaptionFlow {
         let linked = data["linked"].as_bool().unwrap_or(false);
         let viewport = window.viewport_size();
         let width = f32::from(viewport.width).max(1.);
-        let height = f32::from(viewport.height).max(1.);
+        let height = (f32::from(viewport.height) - top_inset).max(1.);
         let padding = (width * 0.065).max(32.);
         let usable = (width - padding * 2.).max(1.);
         let lane_height = ((height - 64. - lanes.len().saturating_sub(1) as f32 * 32.)
@@ -456,8 +457,7 @@ impl CaptionFlow {
                                 .justify_center()
                                 .gap_8()
                                 .px(px(padding))
-                                .pt(px(52.))
-                                .pb_8()
+                                .py_8()
                                 .children(rendered),
                         ),
                 )

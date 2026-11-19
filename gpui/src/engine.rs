@@ -86,6 +86,10 @@ mod portable {
             #[cfg(target_os = "linux")]
             let python = std::env::var_os("CAPTIONFLOW_PYTHON")
                 .ok_or("Launch CaptionFlow using start-captionflow.sh after setup")?;
+            #[cfg(target_os = "linux")]
+            let source_root = std::env::var_os("CAPTIONFLOW_SOURCE_ROOT");
+            #[cfg(target_os = "linux")]
+            let root = source_root.as_deref().map(Path::new).unwrap_or(root);
             #[cfg(not(target_os = "linux"))]
             let python = root.join("python/python.exe");
             let mut command = Command::new(python);

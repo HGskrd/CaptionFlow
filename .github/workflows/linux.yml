@@ -4,12 +4,16 @@ on:
   push:
     branches: [codex/linux-release]
     paths:
+      - '.github/workflows/linux.yml'
       - 'gpui/**'
       - 'portable/**'
       - 'native/**'
       - 'Sources/**'
+      - 'pyproject.toml'
+      - 'uv.lock'
       - 'scripts/build-linux.py'
       - 'scripts/build-audio.py'
+      - 'scripts/run-linux.py'
       - 'scripts/setup-linux.py'
 permissions:
   contents: read
@@ -25,7 +29,7 @@ jobs:
     steps:
       - name: Install Arch build and desktop dependencies
         run: |
-          pacman -Syu --noconfirm --needed base-devel clang cmake git pkgconf rustup python python-pip \
+          pacman -Syu --noconfirm --needed base-devel clang cmake git pkgconf rustup python python-pip uv \
             fontconfig libxkbcommon-x11 libxcb xcb-util-cursor xcb-util-keysyms xcb-util-wm \
             libx11 libxrandr libxi wayland libglvnd glib2 dbus openssl alsa-lib \
             vulkan-icd-loader vulkan-tools vulkan-swrast xorg-server-xvfb xorg-xauth \
@@ -45,18 +49,26 @@ jobs:
           rustup toolchain install 1.98.0 --profile minimal
           rustup run 1.98.0 cargo test --locked
           rustup run 1.98.0 cargo build --release --locked
-      - name: Prepare private packaging environment
-        run: |
-          python -m venv .venv-linux
-          .venv-linux/bin/python -m pip install -r portable/requirements-linux.txt
       - name: Check Linux engine and audio pipeline
         run: |
-          .venv-linux/bin/python scripts/build-audio.py
-          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_linux.py'
-          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_gpui_engine.py'
-          .venv-linux/bin/python -m unittest discover -s tests_portable -p 'test_audio_pipeline.py'
+          uv sync --locked
+          uv run --locked python scripts/build-audio.py
+          for suite in test_linux test_gpui_engine test_audio_pipeline; do
+            uv run --locked python -m unittest discover -s tests_portable -p "$suite.py"
+          done
+      - name: Verify the uv source launch
+        run: |
+          smoke_dir=$(mktemp -d)
+          export XDG_DATA_HOME="$smoke_dir/data"
+          export XDG_RUNTIME_DIR="$smoke_dir/run"
+          export CAPTIONFLOW_SMOKE_EVIDENCE="$smoke_dir/source-smoke.json"
+          export VK_ICD_FILENAMES="$(find /usr/share/vulkan/icd.d -name '*lvp*' | head -1)"
+          mkdir -m 700 "$XDG_RUNTIME_DIR"
+          dbus-run-session -- xvfb-run -a timeout 180 uv run --locked python scripts/run-linux.py --smoke-test
+          uv run --locked python -c 'import json, os; v=json.load(open(os.environ["CAPTIONFLOW_SMOKE_EVIDENCE"])); assert v["preview"] and v["shutdown_received"] and v["original_characters"] > 0, v; print(v)'
       - name: Package Linux archive
         run: |
+          python -m venv .venv-linux
           .venv-linux/bin/python scripts/build-linux.py --python-version "$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')"
       - name: Verify extracted GPUI application
         run: |

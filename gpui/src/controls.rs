@@ -2,8 +2,8 @@
 //! choices and steppers, all driven by the engine's `sections` snapshot.
 use super::{CaptionFlow, Palette, color, string};
 use gpui::{
-    AnyElement, Context, Corner, Div, ExternalPaths, FontWeight, SharedString, Stateful, anchored,
-    deferred, div, point, prelude::*, px, relative, rgb, white,
+    AnyElement, Context, Corner, Div, FontWeight, SharedString, Stateful, anchored, deferred, div,
+    point, prelude::*, px, relative, rgb, white,
 };
 use serde_json::{Value, json};
 use std::time::{Duration, Instant};
@@ -47,6 +47,7 @@ pub(super) fn menu_item(
 ) -> Stateful<Div> {
     div()
         .id(id)
+        .relative()
         .flex()
         .items_center()
         .gap(px(6.))
@@ -58,17 +59,24 @@ pub(super) fn menu_item(
         .child(
             div()
                 .w(px(16.))
+                .min_w(px(16.))
                 .flex_none()
                 .text_center()
                 .text_size(px(12.))
                 .child(if checked { "✓" } else { "" }),
         )
         .child(label.into())
-        .when_some(trailing, |el, text| {
-            el.child(
+        // Trailing text is positioned, not flowed, so every row's label starts
+        // at the same x whether or not it has a shortcut.
+        .when_some(trailing.filter(|t| !t.is_empty()), |el, text| {
+            el.pr(px(64.)).child(
                 div()
-                    .ml_auto()
-                    .pl(px(18.))
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .right(px(10.))
+                    .flex()
+                    .items_center()
                     .text_size(px(12.))
                     .text_color(p.muted)
                     .child(text),
@@ -191,7 +199,7 @@ impl CaptionFlow {
         p: Palette,
         cx: &mut Context<Self>,
     ) -> Div {
-        let open = self.picker.as_deref() == Some(key) && !disabled;
+        let open = self.picker.as_deref() == Some(key) && !disabled && self.menu.is_none();
         let trigger_key = key.to_owned();
         div()
             .relative()
@@ -691,85 +699,5 @@ impl CaptionFlow {
                 .flatten()
                 .flat_map(|s| s["fields"].as_array().into_iter().flatten())
                 .any(|f| f["disabled"].as_bool().unwrap_or(false))
-    }
-
-    pub(super) fn inspector(&self, p: Palette, cx: &mut Context<Self>) -> Div {
-        let sections = self.state["sections"][self.tab]
-            .as_array()
-            .cloned()
-            .unwrap_or_default();
-        div()
-            .w(px(340.))
-            .h_full()
-            .flex_none()
-            .bg(p.panel)
-            .border_l_1()
-            .border_color(p.line)
-            .flex()
-            .flex_col()
-            .on_drop::<ExternalPaths>(cx.listener(|this, paths: &ExternalPaths, _, cx| {
-                let paths = paths
-                    .paths()
-                    .iter()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .collect::<Vec<_>>();
-                this.command(json!({"type":"dropRoots","paths":paths}), cx)
-            }))
-            .child(
-                div().p_3().child(
-                    div()
-                        .flex()
-                        .p(px(2.))
-                        .rounded(px(8.))
-                        .bg(p.control)
-                        .children(
-                            ["Style", "Languages", "Models"]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(i, title)| {
-                                    let on = self.tab == i;
-                                    div()
-                                        .id(("tab", i))
-                                        .flex_1()
-                                        .text_center()
-                                        .py(px(4.))
-                                        .rounded(px(6.))
-                                        .font_weight(FontWeight::MEDIUM)
-                                        .when(on, |el| el.bg(p.control_on).shadow_sm())
-                                        .when(!on, |el| {
-                                            el.text_color(p.muted)
-                                                .cursor_pointer()
-                                                .hover(move |s| s.text_color(p.text))
-                                        })
-                                        .child(title)
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.tab = i;
-                                            this.picker = None;
-                                            cx.notify();
-                                        }))
-                                }),
-                        ),
-                ),
-            )
-            .child(
-                div()
-                    .id(("inspector-scroll", self.tab))
-                    .flex_1()
-                    .min_h_0()
-                    .overflow_y_scroll()
-                    .px_3()
-                    .pb_4()
-                    .flex()
-                    .flex_col()
-                    .gap(px(18.))
-                    .when(self.tab_locked(self.tab), |el| {
-                        el.child(self.lock_banner(p, cx))
-                    })
-                    .children(
-                        sections
-                            .iter()
-                            .map(|section| self.section_group(section, p, cx)),
-                    ),
-            )
     }
 }

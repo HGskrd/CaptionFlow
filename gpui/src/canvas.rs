@@ -1,7 +1,7 @@
 use super::{CaptionFlow, Palette, color};
 use gpui::{
     Animation, AnimationExt, Context, Div, FontWeight, ScrollWheelEvent, SharedString, TextRun,
-    UniformListScrollHandle, Window, div, font, point, prelude::*, px, uniform_list,
+    UniformListScrollHandle, Window, div, font, point, prelude::*, px, relative, uniform_list,
 };
 use serde_json::{Value, json};
 use std::{
@@ -96,8 +96,7 @@ impl CaptionFlow {
     pub(super) fn render_canvas(
         &mut self,
         window: &Window,
-        fullscreen: bool,
-        show_inspector: bool,
+        chrome: bool,
         cx: &mut Context<Self>,
     ) -> Div {
         let preferences = self.state["preferences"].clone();
@@ -137,8 +136,8 @@ impl CaptionFlow {
             .unwrap_or(font_size as f64 * 1.3) as f32;
         let linked = data["linked"].as_bool().unwrap_or(false);
         let viewport = window.viewport_size();
-        let width = (f32::from(viewport.width) - if show_inspector { 340. } else { 0. }).max(1.);
-        let height = (f32::from(viewport.height) - if fullscreen { 0. } else { 100. }).max(1.);
+        let width = f32::from(viewport.width).max(1.);
+        let height = f32::from(viewport.height).max(1.);
         let padding = (width * 0.065).max(32.);
         let usable = (width - padding * 2.).max(1.);
         let lane_height = ((height - 64. - lanes.len().saturating_sub(1) as f32 * 32.)
@@ -191,7 +190,7 @@ impl CaptionFlow {
                         px(-(lane["offset"].as_f64().unwrap_or(0.) as f32)),
                     ));
                 }
-                let footer = if fullscreen { 0. } else { 28. };
+                let footer = if chrome { 28. } else { 0. };
                 let list_id = SharedString::from(format!("transcript/{lane_key}"));
                 let row_key = lane_key.clone();
                 let list = uniform_list(list_id, rows.len(), move |range, _, _| {
@@ -244,7 +243,7 @@ impl CaptionFlow {
                     pane.flex()
                         .flex_col()
                         .child(list)
-                        .when(!fullscreen, |el| {
+                        .when(chrome, |el| {
                             el.child(
                                 div()
                                     .h(px(28.))
@@ -391,7 +390,7 @@ impl CaptionFlow {
                         .into_any_element(),
                 );
             }
-            if !fullscreen && let Some(content) = rendered.pop() {
+            if chrome && let Some(content) = rendered.pop() {
                 let label = if id == "original" {
                     "Original"
                 } else {
@@ -402,10 +401,13 @@ impl CaptionFlow {
                         .relative()
                         .child(content)
                         .child(
+                            // Sits in the left margin so it never covers caption text.
                             div()
                                 .absolute()
-                                .top_0()
-                                .left_0()
+                                .top(px(6.))
+                                .right(relative(1.))
+                                .pr(px(14.))
+                                .whitespace_nowrap()
                                 .text_size(px(11.))
                                 .text_color(p.muted)
                                 .child(label.to_owned()),
@@ -424,7 +426,7 @@ impl CaptionFlow {
             .bg(background)
             .text_color(foreground)
             .overflow_hidden()
-            .when(empty && !fullscreen, |el| {
+            .when(empty, |el| {
                 el.flex().items_center().justify_center().child(
                     div().text_size(px(26.)).opacity(0.7).child(
                         if self.flag("busy") || self.flag("installing") {
@@ -454,7 +456,8 @@ impl CaptionFlow {
                                 .justify_center()
                                 .gap_8()
                                 .px(px(padding))
-                                .py_8()
+                                .pt(px(52.))
+                                .pb_8()
                                 .children(rendered),
                         ),
                 )

@@ -3,15 +3,17 @@ mod canvas;
 mod captions;
 mod controls;
 mod engine;
+mod focus;
 mod updater;
 use engine::Engine;
 use gpui::{
-    App, Application, Bounds, ClipboardItem, Context, Div, FocusHandle, FontWeight, Hsla,
-    KeyBinding, Menu, MenuItem, MouseButton, SharedString, TitlebarOptions, Window,
-    WindowAppearance, WindowBounds, WindowOptions, actions, div, point, prelude::*, px, rgb, size,
+    App, Application, Bounds, ClipboardItem, Context, Div, FocusHandle, Hsla, KeyBinding, Menu,
+    MenuItem, MouseButton, SharedString, TitlebarOptions, Window, WindowAppearance, WindowBounds,
+    WindowOptions, actions, div, point, prelude::*, px, rgb, size,
 };
 use serde_json::{Value, json};
 use std::{
+    collections::HashMap,
     rc::Rc,
     time::{Duration, Instant},
 };
@@ -29,6 +31,8 @@ actions!(
         Settings,
         Escape,
         BackToLive,
+        ShowCaptions,
+        ShowTranscript,
         ShowStyle,
         ShowLanguages,
         ShowModels,
@@ -111,10 +115,14 @@ struct CaptionFlow {
     focus: FocusHandle,
     engine: Rc<Engine>,
     state: Value,
-    inspector: bool,
-    fullscreen_inspector: bool,
-    was_fullscreen: bool,
-    tab: usize,
+    menu: Option<String>,
+    menu_closed: Option<(String, Instant)>,
+    settings_open: bool,
+    pin_controls: bool,
+    bar_hover: bool,
+    controls_until: Option<Instant>,
+    controls_shown: bool,
+    caption_presentation: HashMap<&'static str, Value>,
     picker: Option<String>,
     picker_closed: Option<(String, Instant)>,
     quitting: bool,
@@ -133,10 +141,14 @@ impl CaptionFlow {
             focus,
             engine,
             state,
-            inspector: false,
-            fullscreen_inspector: false,
-            was_fullscreen: false,
-            tab: 0,
+            menu: None,
+            menu_closed: None,
+            settings_open: false,
+            pin_controls: false,
+            bar_hover: false,
+            controls_until: None,
+            controls_shown: true,
+            caption_presentation: HashMap::new(),
             picker: None,
             picker_closed: None,
             quitting: false,
@@ -165,6 +177,9 @@ impl CaptionFlow {
                                 this.state = state;
                                 cx.notify();
                             }
+                        }
+                        if this.controls_shown != this.controls_visible() {
+                            cx.notify();
                         }
                         this.updates.set_online(this.flag("online"));
                         let status = this.updates.status();
@@ -214,8 +229,7 @@ impl CaptionFlow {
             cx,
         );
         if !self.flag("installed") {
-            self.inspector = true;
-            self.tab = 2;
+            self.open_settings(cx);
         }
     }
     fn update_app(&mut self, cx: &mut Context<Self>) {
@@ -233,25 +247,6 @@ impl CaptionFlow {
     fn request_quit(&mut self, cx: &mut Context<Self>) {
         self.quitting = true;
         self.command(json!({"type":"shutdown"}), cx);
-    }
-    fn toggle_inspector(&mut self, window: &Window, cx: &mut Context<Self>) {
-        if window.is_fullscreen() {
-            self.fullscreen_inspector = !self.fullscreen_inspector;
-        } else {
-            self.inspector = !self.inspector;
-        }
-        self.picker = None;
-        cx.notify();
-    }
-    fn show_tab(&mut self, tab: usize, window: &Window, cx: &mut Context<Self>) {
-        self.tab = tab;
-        self.picker = None;
-        if window.is_fullscreen() {
-            self.fullscreen_inspector = true;
-        } else {
-            self.inspector = true;
-        }
-        cx.notify();
     }
     fn copy(&mut self, cx: &mut Context<Self>) {
         let p = &self.state["preferences"];
@@ -312,85 +307,77 @@ impl CaptionFlow {
 }
 impl Render for CaptionFlow {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let fullscreen = window.is_fullscreen();
-        if fullscreen && !self.was_fullscreen {
-            self.fullscreen_inspector = false;
-            self.picker = None;
-        }
-        self.was_fullscreen = fullscreen;
-        let show_inspector = if fullscreen {
-            self.fullscreen_inspector
-        } else {
-            self.inspector
-        };
         let p = Palette::new(matches!(
             window.appearance(),
             WindowAppearance::Dark | WindowAppearance::VibrantDark
         ));
-        let active = self.flag("active");
-        let locked = self.flag("stopping") || self.flag("installing");
-        let error = self.state["error"].as_str().unwrap_or("").to_owned();
-        let notice = [
-            self.state["notice"].as_str().unwrap_or(""),
-            self.update_status.message.as_str(),
-        ]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join(" · ");
-        let canvas = self.render_canvas(window, fullscreen, show_inspector, cx);
-        div().key_context("CaptionFlow").track_focus(&self.focus).size_full().flex().flex_col().overflow_hidden().bg(p.background).text_color(p.text).font_family(".SystemUIFont").text_size(px(13.))
-.on_action(cx.listener(|this,_:&Listen,_,cx|this.listen(cx)))
-.on_action(cx.listener(|this,_:&Preview,_,cx|this.command(json!({"type":"preview"}),cx)))
-.on_action(cx.listener(|this,_:&CopyCaptions,_,cx|this.copy(cx)))
-.on_action(cx.listener(|this,_:&Inspector,window,cx|this.toggle_inspector(window,cx)))
-.on_action(cx.listener(|this,_:&Privacy,_,cx|this.command(json!({"type":"privacy"}),cx)))
-.on_action(cx.listener(|this,_:&Settings,_,cx|{this.inspector=true;this.fullscreen_inspector=true;cx.notify();}))
-.on_action(|_:&Fullscreen,window,_|window.toggle_fullscreen())
-.on_action(cx.listener(|this,_:&Close,_,cx|this.request_quit(cx)))
-.on_action(cx.listener(|this,_:&BackToLive,_,cx|this.back_to_live(None,cx)))
-.on_action(cx.listener(|this,_:&ShowStyle,window,cx|this.show_tab(0,window,cx)))
-.on_action(cx.listener(|this,_:&ShowLanguages,window,cx|this.show_tab(1,window,cx)))
-.on_action(cx.listener(|this,_:&ShowModels,window,cx|this.show_tab(2,window,cx)))
-.on_action(cx.listener(|this,_:&CheckForUpdates,_,cx|this.update_app(cx)))
-.on_action(cx.listener(|this,_:&Escape,window,cx|{if this.picker.take().is_some(){cx.notify();}else if window.is_fullscreen(){window.toggle_fullscreen();}}))
-.when(!fullscreen,|el|el
-.child(div().h(px(56.)).flex_none().flex().items_center().justify_between().pl(px(88.)).pr_4().border_b_1().border_color(p.line).on_mouse_down(MouseButton::Left,|_,window,_|window.start_window_move())
-.child(div().font_weight(FontWeight::SEMIBOLD)
-.child("CaptionFlow"))
-.child(div().flex().gap_2().on_mouse_down(MouseButton::Left,|_,_,cx|cx.stop_propagation())
-.child(Self::button("privacy","Privacy / sharing…",false,self.flag("installing"),p)
-.on_click(cx.listener(|this,_,_,cx|{if !this.flag("installing"){this.command(json!({"type":"privacy"}),cx);}})))
-.child(Self::button("fullscreen","Full screen",false,false,p)
-.on_click(|_,window,_|window.toggle_fullscreen()))
-.child(Self::button("inspector","Inspector",show_inspector,false,p)
-.on_click(cx.listener(|this,_,window,cx|this.toggle_inspector(window,cx))))
-.child(Self::button("listen",if active{"Stop"}else{"Start listening"},true,locked,p)
-.on_click(cx.listener(|this,_,_,cx|this.listen(cx)))))))
-.child(div().flex_1().min_h_0().flex()
-.child(canvas)
-.when(show_inspector,|el|el
-.child(self.inspector(p,cx))))
-.when(!fullscreen&&(!error.is_empty()||!notice.is_empty()),|el|el
-.child(div().px_5().py_3().flex().items_center().gap_3().bg(p.panel)
-.child(div().flex_1().min_w_0()
-.child(if error.is_empty(){notice}else{error.clone()}))
-.when(self.flag("capturePermissionIssue")&&!error.is_empty(),|el|el
-.child(Self::button("capture-settings","Open System Settings",false,false,p)
-.on_click(cx.listener(|this,_,_,cx|this.command(json!({"type":"captureSettings"}),cx)))))
-.child(Self::button("dismiss","Dismiss",false,false,p)
-.on_click(cx.listener(move|this,_,_,cx|this.command(json!({"type":if error.is_empty(){"dismissNotice"}else{"dismissError"}}),cx))))))
-.when(!fullscreen,|el|el
-.child(div().h(px(44.)).flex_none().px_5().flex().items_center().justify_between().border_t_1().border_color(p.line)
-.child(div().text_size(px(11.)).text_color(p.muted)
-.child(self.state["inputStatus"].as_str().unwrap_or("").to_owned()))
-.child(div().flex().gap_2()
-.child(Self::button("component-update", match self.update_status.phase.as_str() {
-    "available" => "Download update", "ready" => "Restart to update", "checking" => "Checking…", "downloading" => "Downloading…", _ => "Check for updates"
-}, false, !self.updates.online() || matches!(self.update_status.phase.as_str(), "checking" | "downloading"), p)
-.on_click(cx.listener(|this,_,_,cx|this.update_app(cx))))
-.child(Self::button("copy",if self.copied{"Copied"}else{"Copy captions"},false,false,p)
-.on_click(cx.listener(|this,_,_,cx|this.copy(cx)))))))
+        let chrome = self.controls_visible();
+        self.controls_shown = chrome;
+        let canvas = self.render_canvas(window, chrome, cx);
+        let toast = self.toast(p, cx);
+        div()
+            .key_context("CaptionFlow")
+            .track_focus(&self.focus)
+            .size_full()
+            .relative()
+            .overflow_hidden()
+            .bg(p.background)
+            .text_color(p.text)
+            .font_family(".SystemUIFont")
+            .text_size(px(13.))
+            .on_mouse_move(cx.listener(|this, _, _, cx| this.reveal_controls(cx)))
+            .on_action(cx.listener(|this, _: &Listen, _, cx| this.listen(cx)))
+            .on_action(
+                cx.listener(|this, _: &Preview, _, cx| this.command(json!({"type":"preview"}), cx)),
+            )
+            .on_action(cx.listener(|this, _: &CopyCaptions, _, cx| this.copy(cx)))
+            .on_action(cx.listener(|this, _: &Inspector, _, cx| {
+                this.pin_controls = !this.pin_controls;
+                cx.notify();
+            }))
+            .on_action(
+                cx.listener(|this, _: &Privacy, _, cx| this.command(json!({"type":"privacy"}), cx)),
+            )
+            .on_action(cx.listener(|this, _: &Settings, _, cx| this.open_settings(cx)))
+            .on_action(|_: &Fullscreen, window, _| window.toggle_fullscreen())
+            .on_action(cx.listener(|this, _: &Close, _, cx| this.request_quit(cx)))
+            .on_action(cx.listener(|this, _: &BackToLive, _, cx| this.back_to_live(None, cx)))
+            .on_action(cx.listener(|this, _: &ShowCaptions, _, cx| this.set_layout(false, cx)))
+            .on_action(cx.listener(|this, _: &ShowTranscript, _, cx| this.set_layout(true, cx)))
+            .on_action(cx.listener(|this, _: &ShowStyle, _, cx| this.open_menu("style", cx)))
+            .on_action(
+                cx.listener(|this, _: &ShowLanguages, _, cx| this.open_menu("listening", cx)),
+            )
+            .on_action(cx.listener(|this, _: &ShowModels, _, cx| this.open_settings(cx)))
+            .on_action(cx.listener(|this, _: &CheckForUpdates, _, cx| this.update_app(cx)))
+            .on_action(cx.listener(|this, _: &Escape, window, cx| this.handle_escape(window, cx)))
+            .child(canvas)
+            // The title bar is transparent; keep the window draggable from its top edge.
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .right_0()
+                    .h(px(44.))
+                    .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move()),
+            )
+            .children(toast)
+            .when(chrome, |el| {
+                el.child(
+                    div()
+                        .absolute()
+                        .bottom(px(26.))
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .justify_center()
+                        .child(self.control_bar(p, cx)),
+                )
+            })
+            .when(self.settings_open, |el| {
+                el.child(self.settings_sheet(p, cx))
+            })
     }
 }
 fn main() {
@@ -410,9 +397,10 @@ fn main() {
             KeyBinding::new("cmd-,", Settings, Some("CaptionFlow")),
             KeyBinding::new("escape", Escape, Some("CaptionFlow")),
             KeyBinding::new("cmd-down", BackToLive, Some("CaptionFlow")),
-            KeyBinding::new("cmd-1", ShowStyle, Some("CaptionFlow")),
-            KeyBinding::new("cmd-2", ShowLanguages, Some("CaptionFlow")),
-            KeyBinding::new("cmd-3", ShowModels, Some("CaptionFlow")),
+            KeyBinding::new("cmd-1", ShowCaptions, Some("CaptionFlow")),
+            KeyBinding::new("cmd-2", ShowTranscript, Some("CaptionFlow")),
+            KeyBinding::new("cmd-t", ShowStyle, Some("CaptionFlow")),
+            KeyBinding::new("cmd-l", ShowLanguages, Some("CaptionFlow")),
         ]);
         cx.set_menus(vec![
             Menu {
@@ -438,11 +426,14 @@ fn main() {
             Menu {
                 name: "View".into(),
                 items: vec![
-                    MenuItem::action("Style", ShowStyle),
-                    MenuItem::action("Languages", ShowLanguages),
-                    MenuItem::action("Models", ShowModels),
+                    MenuItem::action("Captions", ShowCaptions),
+                    MenuItem::action("Transcript", ShowTranscript),
                     MenuItem::separator(),
-                    MenuItem::action("Show or Hide Inspector", Inspector),
+                    MenuItem::action("Caption Style…", ShowStyle),
+                    MenuItem::action("Input & Language…", ShowLanguages),
+                    MenuItem::action("Models…", ShowModels),
+                    MenuItem::separator(),
+                    MenuItem::action("Keep Controls Visible", Inspector),
                     MenuItem::action("Enter or Exit Full Screen", Fullscreen),
                 ],
             },

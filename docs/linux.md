@@ -55,6 +55,27 @@ portable setup is `./setup-arch.sh --skip-system-packages --offline` after syste
 libraries are installed. Keep the extracted folder in place and rerun portable
 setup after moving it or upgrading the Python minor version.
 
+## Develop from source with uv
+
+On Arch or EndeavourOS x86_64, install `uv`, Rust via `rustup`, a C compiler,
+and the desktop libraries listed in the [Arch build workflow](../.github/workflows/linux.yml).
+Run these commands from the repository root.
+
+```sh
+uv sync --locked
+uv run --locked python scripts/build-audio.py
+uv run --locked python scripts/run-linux.py
+```
+
+`uv` creates a checkout-local `.venv` with the locked Python wheels (CPython
+3.13 or 3.14). The audio build produces the shared DSP library. The launcher
+builds GPUI with the Rust toolchain pinned in `gpui/rust-toolchain.toml` and
+runs it against the Python backend in your checkout. Inference runtimes and
+models download separately during model setup if you opt in. For offline model
+setup from source, also place the pinned native runtime archives for your
+backend in the user data directory's `downloads/` subdirectory. To preview
+sample captions, append `--smoke-test` to the launcher command.
+
 ## Models and data
 
 Choose online participation in the app to authorize model downloads and opt-in
